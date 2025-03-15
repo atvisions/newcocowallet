@@ -44,7 +44,7 @@ export default function CustomSplash({ navigation }) {
   return (
     <View style={styles.container}>
       <Animated.Image
-        source={require('../../assets/adaptive-icon.png')}
+        source={require('../../assets/splash.png')}
         style={[styles.logo, { transform: [{ rotate: spin }] }]}
         resizeMode="contain"
       />

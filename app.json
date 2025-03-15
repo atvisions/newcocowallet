@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "cocowallet",
-    "slug": "my-expo-app",
+    "name": "CocoWallet",
+    "slug": "cocowallet",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/splash.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#171C32",
     "splash": {
@@ -23,11 +23,12 @@
       "supportsTablet": true,
       "userInterfaceStyle": "dark",
       "backgroundColor": "#171C32",
-      "bundleIdentifier": "com.cocowallet.cocowallet"
+      "bundleIdentifier": "com.cocowallet.cocowallet",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/splash.png",
+        "foregroundImage": "./assets/icon-adaptive-foreground.png",
         "backgroundColor": "#171C32"
       },
       "softwareKeyboardLayoutMode": "pan",
@@ -38,15 +39,10 @@
         "android.permission.ACCESS_NETWORK_STATE"
       ],
       "package": "com.cocowallet.cocowallet",
-      "versionCode": 2,
-      "buildToolsVersion": "35.0.0",
-      "compileSdkVersion": 35,
-      "targetSdkVersion": 34,
-      "minSdkVersion": 21,
-      "ndkVersion": "26.1.10909125"
+      "versionCode": 2
     },
     "web": {
-      "favicon": "./assets/splash.png"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       [
