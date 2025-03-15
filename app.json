@@ -24,11 +24,14 @@
       "userInterfaceStyle": "dark",
       "backgroundColor": "#171C32",
       "bundleIdentifier": "com.cocowallet.cocowallet",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon-adaptive-foreground.png",
+        "foregroundImage": "./assets/icon-adaptive.png",
         "backgroundColor": "#171C32"
       },
       "softwareKeyboardLayoutMode": "pan",
@@ -58,9 +61,15 @@
         }
       ]
     ],
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/95917907-e15f-48be-92a3-012b879c0b76"
+    },
+    "runtimeVersion": "1.0.0",
     "extra": {
       "eas": {
-        "projectId": "d919025a-0f0e-4ac6-923a-0f566ee4e792"
+        "projectId": "95917907-e15f-48be-92a3-012b879c0b76"
       }
     }
   }
