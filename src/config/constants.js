@@ -1,0 +1,1 @@
+export const BASE_URL = 'https://api.example.com'; // 替换为实际的API地址 
