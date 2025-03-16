@@ -1910,13 +1910,10 @@ const SwapScreen = ({ navigation, route }) => {
             }
           >
             <View style={styles.swapCardContainer}>
-              <View style={styles.swapCard}>
                 {renderTokenSelector(fromToken, 'from', 'Payment Token')}
-              </View>
-
-              <View style={styles.swapCard}>
+              
                 {renderTokenSelector(toToken, 'to', 'Receive Token')}
-              </View>
+              
 
               <TouchableOpacity 
                 style={[
@@ -2062,30 +2059,127 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     marginHorizontal: 16,
   },
-  swapCard: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    backgroundColor: 'rgba(40, 42, 70, 1)',
-  },
   detailsCard: {
     marginHorizontal: 16,
     marginBottom: 30, // 增加底部边距，让详情容器与底部有更多空间
   },
   tokenSelectorWrapper: {
-    width: '100%',
-    
+    padding: 16,
+    backgroundColor: 'rgba(31, 197, 149, 0.08)', // 使用主题色的超淡版本作为背景
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(31, 197, 149, 0.1)', // 使用主题色作为边框
   },
+  tokenSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)', // 深色背景
+    borderWidth: 1,
+    borderColor: 'rgba(31, 197, 149, 0.15)', // 主题色边框
+    shadowColor: '#1FC595',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ,
   tokenSelector: {
     flexDirection: 'row',
     alignItems: 'center',

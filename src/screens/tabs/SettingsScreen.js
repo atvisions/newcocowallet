@@ -9,7 +9,9 @@ import {
   Platform,
   SafeAreaView,
   StatusBar,
-  Image
+  Image,
+  ActivityIndicator,
+  Modal
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { api } from '../../services/api';
@@ -19,11 +21,161 @@ import { useWallet } from '../../contexts/WalletContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Updates from 'expo-updates';
+
+// Add this constant - increment it with each OTA update
+const BUILD_NUMBER = "1"; // This can be updated with OTA updates
+
+// Custom update modal component
+const UpdateModal = ({ visible, onLater, onUpdate }) => {
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onLater}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <LinearGradient
+            colors={['#2A3352', '#171C32']}
+            style={styles.modalGradient}
+          >
+            <Image 
+              source={require('../../../assets/icon-adaptive.png')} 
+              style={styles.updateIcon} 
+              resizeMode="contain"
+            />
+            
+            <Text style={styles.updateTitle}>Update Available</Text>
+            <Text style={styles.updateMessage}>
+              A new version is available with new features and improvements.
+            </Text>
+            
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.button, styles.laterButton]} 
+                onPress={onLater}
+              >
+                <Text style={styles.laterButtonText}>Later</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.button, styles.updateButton]} 
+                onPress={onUpdate}
+              >
+                <LinearGradient
+                  colors={['#4A6FFF', '#2E5BFF']}
+                  style={styles.updateButtonGradient}
+                >
+                  <Text style={styles.updateButtonText}>Update Now</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// Update complete modal component
+const UpdateCompleteModal = ({ visible, onRestart }) => {
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={visible}
+      onRequestClose={() => {}}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <LinearGradient
+            colors={['#2A3352', '#171C32']}
+            style={styles.modalGradient}
+          >
+            <Image 
+              source={require('../../../assets/icon-adaptive.png')} 
+              style={styles.updateIcon} 
+              resizeMode="contain"
+            />
+            
+            <Text style={styles.updateTitle}>Update Complete</Text>
+            <Text style={styles.updateMessage}>
+              The new version has been downloaded. Restart to apply the update.
+            </Text>
+            
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.button, styles.updateButton, {width: '100%'}]} 
+                onPress={onRestart}
+              >
+                <LinearGradient
+                  colors={['#4A6FFF', '#2E5BFF']}
+                  style={styles.updateButtonGradient}
+                >
+                  <Text style={styles.updateButtonText}>Restart Now</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// No updates modal component
+const NoUpdatesModal = ({ visible, onClose }) => {
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <LinearGradient
+            colors={['#2A3352', '#171C32']}
+            style={styles.modalGradient}
+          >
+            <View style={[styles.iconContainer, { width: 60, height: 60, backgroundColor: '#1FC595', marginBottom: 16 }]}>
+              <Ionicons name="checkmark" size={30} color="#FFFFFF" />
+            </View>
+            
+            <Text style={styles.updateTitle}>You're Up to Date</Text>
+            <Text style={styles.updateMessage}>
+              You're already using the latest version of the app.
+            </Text>
+            
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[styles.button, styles.updateButton, {width: '100%'}]} 
+                onPress={onClose}
+              >
+                <LinearGradient
+                  colors={['#4A6FFF', '#2E5BFF']}
+                  style={styles.updateButtonGradient}
+                >
+                  <Text style={styles.updateButtonText}>OK</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 export default function SettingsScreen({ navigation }) {
   const [hasPaymentPassword, setHasPaymentPassword] = useState(false);
-  const { selectedWallet, setSelectedWallet, wallets } = useWallet();
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateModalVisible, setUpdateModalVisible] = useState(false);
+  const [completeModalVisible, setCompleteModalVisible] = useState(false);
+  const [noUpdatesModalVisible, setNoUpdatesModalVisible] = useState(false);
+  const { selectedWallet } = useWallet();
   const insets = useSafeAreaInsets();
 
   useFocusEffect(
@@ -34,26 +186,21 @@ export default function SettingsScreen({ navigation }) {
     }, [])
   );
 
-  // 在组件加载时检查支付密码状态
   useEffect(() => {
     checkPaymentPasswordStatus();
   }, []);
 
-  // 每次页面获得焦点时重新检查状态
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       checkPaymentPasswordStatus();
     });
-
     return unsubscribe;
   }, [navigation]);
 
   const checkPaymentPasswordStatus = async () => {
-    console.log('Checking payment password status...');
     try {
       const deviceId = await DeviceManager.getDeviceId();
       const response = await api.checkPaymentPasswordStatus(deviceId);
-      console.log('Payment password status:', response);  // 添加日志
       setHasPaymentPassword(response || false);
     } catch (error) {
       console.error('Check payment password error:', error);
@@ -69,109 +216,86 @@ export default function SettingsScreen({ navigation }) {
     }
   };
 
-  const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      // 如果无法返回，则重置到主页面
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Main' }],
+  const checkForUpdates = async () => {
+    if (isCheckingUpdate) return;
+    
+    setIsCheckingUpdate(true);
+    try {
+      console.log('Starting update check...');
+      console.log('Current runtime version:', Updates.runtimeVersion);
+      console.log('Is development build?', __DEV__);
+      console.log('Update configuration:', Updates.configuration);
+      
+      // 检查是否在开发环境
+      if (__DEV__) {
+        console.log('In development mode, skipping update check');
+        Alert.alert(
+          "Development Mode",
+          "Update checking is only available in production builds.",
+          [{ text: "OK" }]
+        );
+        return;
+      }
+
+      console.log('Calling Updates.checkForUpdateAsync()...');
+      const update = await Updates.checkForUpdateAsync();
+      console.log('Update check result:', update);
+      console.log('Update available?', update.isAvailable);
+      
+      if (update.isAvailable) {
+        console.log('Update is available, showing modal');
+        setUpdateModalVisible(true);
+      } else {
+        console.log('No updates available');
+        setNoUpdatesModalVisible(true);
+      }
+    } catch (error) {
+      console.error('Update check error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        configuration: Updates.configuration
       });
+      
+      if (!__DEV__) {
+        Alert.alert(
+          "Update Check Failed",
+          "Please try again later.",
+          [{ text: "OK" }]
+        );
+      }
+    } finally {
+      setIsCheckingUpdate(false);
     }
   };
 
-  // 处理钱包管理
-  const handleWalletManagement = () => {
-    navigation.navigate('WalletManagement');
+  const handleUpdate = async () => {
+    try {
+      console.log('Starting update download...');
+      setUpdateModalVisible(false);
+      await Updates.fetchUpdateAsync();
+      console.log('Update downloaded successfully');
+      setCompleteModalVisible(true);
+    } catch (error) {
+      console.error('Update download error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      Alert.alert(
+        "Update Failed",
+        "Please check your network and try again.",
+        [{ text: "OK" }]
+      );
+    }
   };
 
-  // 处理安全设置
-  const handleSecuritySettings = () => {
-    navigation.navigate('SecuritySettings');
+  const handleRestart = () => {
+    console.log('Restarting app to apply update...');
+    Updates.reloadAsync();
   };
-
-  // 处理语言设置
-  const handleLanguageSettings = () => {
-    navigation.navigate('LanguageSettings');
-  };
-
-  // 处理通知设置
-  const handleNotificationSettings = () => {
-    navigation.navigate('NotificationSettings');
-  };
-
-  // 处理帮助与支持
-  const handleHelpSupport = () => {
-    navigation.navigate('HelpSupport');
-  };
-
-  // 处理关于我们
-  const handleAboutUs = () => {
-    navigation.navigate('AboutUs');
-  };
-
-  // 处理服务条款
-  const handleTermsOfService = () => {
-    navigation.navigate('TermsOfService');
-  };
-
-  // 处理隐私政策
-  const handlePrivacyPolicy = () => {
-    navigation.navigate('PrivacyPolicy');
-  };
-
-  // 处理退出登录
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // 清除本地存储的登录状态
-              await AsyncStorage.removeItem('userToken');
-              await AsyncStorage.removeItem('selectedWallet');
-              
-              // 重置钱包状态
-              setSelectedWallet(null);
-              
-              // 导航到登录页面
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Auth' }],
-              });
-            } catch (error) {
-              console.error('Logout error:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            }
-          },
-        },
-      ],
-      { cancelable: true }
-    );
-  };
-
-  // 渲染设置项
-  const renderSettingItem = (icon, title, onPress, showDivider = true) => (
-    <>
-      <TouchableOpacity style={styles.settingItem} onPress={onPress}>
-        <View style={styles.settingIconContainer}>
-          <Ionicons name={icon} size={22} color="#FFFFFF" />
-        </View>
-        <Text style={styles.settingTitle}>{title}</Text>
-        <Ionicons name="chevron-forward" size={20} color="#8E8E8E" />
-      </TouchableOpacity>
-      {showDivider && <View style={styles.divider} />}
-    </>
-  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -209,6 +333,7 @@ export default function SettingsScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         </View>
+
         <ScrollView style={styles.content}>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Security</Text>
@@ -221,7 +346,7 @@ export default function SettingsScreen({ navigation }) {
                   <Ionicons name="lock-closed" size={20} color="#FFFFFF" />
                 </View>
                 <Text style={styles.menuItemText}>
-                  {hasPaymentPassword ? 'Change Payment Password' : 'Set Payment Password'}
+                  {hasPaymentPassword ? 'Change Password' : 'Set Password'}
                 </Text>
               </View>
               <View style={styles.menuItemRight}>
@@ -237,20 +362,48 @@ export default function SettingsScreen({ navigation }) {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About</Text>
-            <View style={styles.menuItem}>
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={checkForUpdates}
+              disabled={isCheckingUpdate}
+            >
               <View style={styles.menuItemLeft}>
                 <View style={[styles.iconContainer, { backgroundColor: '#5856D6' }]}>
                   <Ionicons name="information" size={20} color="#FFFFFF" />
                 </View>
                 <Text style={styles.menuItemText}>Version</Text>
               </View>
-              <Text style={styles.versionText}>
-                {Constants.expoConfig.version}
-              </Text>
-            </View>
+              <View style={styles.menuItemRight}>
+                <Text style={styles.versionText}>
+                  {Constants.expoConfig.version} (Build {BUILD_NUMBER})
+                </Text>
+                {isCheckingUpdate ? (
+                  <ActivityIndicator size="small" color="#1FC595" style={{ marginLeft: 8 }} />
+                ) : (
+                  <Ionicons name="refresh" size={20} color="#1FC595" style={{ marginLeft: 8 }} />
+                )}
+              </View>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
+
+      {/* Custom modals */}
+      <UpdateModal 
+        visible={updateModalVisible}
+        onLater={() => setUpdateModalVisible(false)}
+        onUpdate={handleUpdate}
+      />
+      
+      <UpdateCompleteModal
+        visible={completeModalVisible}
+        onRestart={handleRestart}
+      />
+
+      <NoUpdatesModal
+        visible={noUpdatesModalVisible}
+        onClose={() => setNoUpdatesModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -269,6 +422,40 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    height: 56,
+  },
+  walletSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  walletAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 8,
+  },
+  walletName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
@@ -307,14 +494,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
   },
-  versionText: {
-    fontSize: 14,
-    color: '#8E8E8E',
-  },
   menuItemRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+  },
+  versionText: {
+    fontSize: 14,
+    color: '#8E8E8E',
+    marginRight: 8,
   },
   checkmarkContainer: {
     width: 24,
@@ -325,69 +512,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 8,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    height: 56,
-  },
-  walletSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  walletAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 8,
-  },
-  walletName: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  settingsContainer: {
+  modalContainer: {
+    width: '85%',
     borderRadius: 16,
     overflow: 'hidden',
-    marginHorizontal: 16,
+    elevation: 5,
   },
-  settingItem: {
-    flexDirection: 'row',
+  modalGradient: {
+    padding: 24,
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
   },
-  settingIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  updateIcon: {
+    width: 80,
+    height: 80,
+    marginBottom: 16,
+  },
+  updateTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  updateMessage: {
+    fontSize: 16,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'space-between',
+  },
+  button: {
+    width: '48%',
+    height: 50,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    backgroundColor: 'rgba(44, 41, 65, 0.8)',
   },
-  settingTitle: {
-    flex: 1,
+  laterButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  laterButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '500',
   },
-  divider: {
-    height: 1,
-    marginLeft: 72,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  updateButton: {
+    overflow: 'hidden',
+  },
+  updateButtonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  updateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

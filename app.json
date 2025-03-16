@@ -64,7 +64,8 @@
     "updates": {
       "enabled": true,
       "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/95917907-e15f-48be-92a3-012b879c0b76"
+      "url": "https://u.expo.dev/95917907-e15f-48be-92a3-012b879c0b76",
+      "channel": "production"
     },
     "runtimeVersion": "1.0.0",
     "extra": {

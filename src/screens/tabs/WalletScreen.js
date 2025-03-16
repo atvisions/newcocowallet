@@ -12,7 +12,8 @@ import {
   FlatList,
   RefreshControl,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  AppState
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
@@ -37,12 +38,38 @@ const WalletScreen = ({ navigation }) => {
   const [screenKey, setScreenKey] = useState(0);
   const currentRequestRef = useRef(null);
   const currentWalletIdRef = useRef(null);  // 用来跟踪当前钱包ID
+  const [appState, setAppState] = useState(AppState.currentState);
+  const appStateRef = useRef(AppState.currentState);
 
   useWalletNavigation(navigation);
 
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  // 添加 AppState 监听器用于后台/前台切换
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App has come to the foreground, refreshing data...');
+        // 根据缓存时间决定是否需要刷新
+        const { lastUpdate } = getTokensCache(selectedWallet?.id);
+        const cacheAge = Date.now() - lastUpdate;
+        const CACHE_TIMEOUT = 30000; // 30秒缓存超时
+        
+        if (cacheAge >= CACHE_TIMEOUT) {
+          loadTokens(false); // 使用 false 避免显示加载动画
+        }
+      }
+      
+      appStateRef.current = nextAppState;
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [selectedWallet?.id]);
 
   useEffect(() => {
     if (selectedWallet) {
@@ -439,8 +466,20 @@ const WalletScreen = ({ navigation }) => {
         <Text style={styles.balanceLabel}>Balance</Text>
         <View style={styles.balanceRow}>
           {isLoading ? (
-            <View style={styles.balanceAmountSkeleton}>
-              <View style={styles.skeletonAnimation} />
+            <View style={{ width: '100%' }}>
+              <View style={{ 
+                height: 60, 
+                width: '70%', 
+                borderRadius: 8, 
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                marginBottom: 8 
+              }} />
+              <View style={{ 
+                height: 24, 
+                width: 100, 
+                borderRadius: 12,
+                backgroundColor: 'rgba(255, 255, 255, 0.06)' 
+              }} />
             </View>
           ) : (
             <>
@@ -499,27 +538,17 @@ const WalletScreen = ({ navigation }) => {
   };
 
   const renderTokenSkeleton = () => {
-    return Array(3).fill(0).map((_, index) => (
-      <View key={`skeleton-${index}`} style={[styles.tokenItemCard, styles.skeletonCard]}>
-        <View style={[styles.tokenLogo, styles.tokenLogoSkeleton]}>
-          <View style={styles.skeletonAnimation} />
-        </View>
+    return Array(4).fill(0).map((_, index) => (
+      <View key={`skeleton-${index}`} style={[styles.tokenItemCard, { backgroundColor: 'rgba(255, 255, 255, 0.03)', marginBottom: 8 }]}>
+        <View style={[styles.tokenLogo, { backgroundColor: 'rgba(255, 255, 255, 0.06)' }]} />
         <View style={styles.tokenInfo}>
           <View style={styles.tokenHeader}>
-            <View style={[styles.tokenNameSkeleton, { width: 80 }]}>
-              <View style={styles.skeletonAnimation} />
-            </View>
-            <View style={[styles.tokenValueSkeleton, { width: 60 }]}>
-              <View style={styles.skeletonAnimation} />
-            </View>
+            <View style={{ width: 120, height: 20, borderRadius: 6, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
+            <View style={{ width: 80, height: 20, borderRadius: 6, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
           </View>
           <View style={styles.tokenDetails}>
-            <View style={[styles.tokenBalanceSkeleton, { width: 100 }]}>
-              <View style={styles.skeletonAnimation} />
-            </View>
-            <View style={[styles.priceChangeSkeleton, { width: 50 }]}>
-              <View style={styles.skeletonAnimation} />
-            </View>
+            <View style={{ width: 100, height: 16, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
+            <View style={{ width: 70, height: 16, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
           </View>
         </View>
       </View>
@@ -745,13 +774,12 @@ const WalletScreen = ({ navigation }) => {
               </LinearGradient>
               <Text style={styles.actionButtonText}>Send</Text>
             </TouchableOpacity>
-    
             <TouchableOpacity 
               style={styles.actionButton}
               onPress={async () => {
                 try {
                   if (!selectedWallet?.id) {
-                    Alert.alert('错误', '钱包信息不完整');
+                    Alert.alert('Error', 'Wallet information is incomplete');
                     return;
                   }
                   const deviceId = await DeviceManager.getDeviceId();
@@ -766,7 +794,7 @@ const WalletScreen = ({ navigation }) => {
                   navigation.navigate('History', params);
                 } catch (error) {
                   console.error('Navigation error:', error);
-                  Alert.alert('错误', '无法访问交易历史');
+                  Alert.alert('Error', 'Unable to access transaction history');
                 }
               }}
             >
