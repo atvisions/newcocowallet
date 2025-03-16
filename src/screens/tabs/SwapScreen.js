@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -262,10 +262,23 @@ const SwapScreen = ({ navigation, route }) => {
   const [isSwapping, setIsSwapping] = useState(false);
   const spinAnim = useState(new Animated.Value(0))[0];
 
+  // 1. 首先在组件顶部添加状态
+  const [txStatus, setTxStatus] = useState(null);
+
   // 使用 useRef 而不是 useState 来跟踪定时器和计数器
   const transactionStatusRef = React.useRef('idle');
   const statusCheckTimerRef = React.useRef(null);
   const maxCheckAttemptsRef = React.useRef(0);
+  const messageTimeoutRef = useRef(null);
+  const currentProcessingTx = useRef(null);
+
+  // 添加一个 ref 来跟踪当前正在进行的轮询
+  const isPolling = useRef(false);
+
+  // 添加一个全局状态来跟踪消息显示
+  const [hasShownPending, setHasShownPending] = useState(false);
+  const [hasShownSuccess, setHasShownSuccess] = useState(false);
+  const [hasShownFailed, setHasShownFailed] = useState(false);
 
   // 使用 useFocusEffect 监听页面焦点
   useFocusEffect(
@@ -292,291 +305,203 @@ const SwapScreen = ({ navigation, route }) => {
           quoteRefreshInterval.current = null;
         }
         // 停止交易状态检查
-        stopTransactionStatusCheck();
+        // stopTransactionStatusCheck();
         // 不再重置 fromToken 和 toToken
       };
     }, [])
   );
 
-  // 处理从支付密码页面返回的交易信息
+  // 2. 修改 useEffect 处理路由参数部分
   useEffect(() => {
-    // 检查路由参数，支持嵌套参数结构
-    const params = route?.params;
-    const transactionInfo = params?.transactionInfo;
-    const checkTransactionStatus = params?.checkTransactionStatus;
+    const params = route.params;
+    if (!params?.transactionInfo) return;
+  
+    console.log('【交易状态检查】收到路由参数:', params);
+    const { signature } = params.transactionInfo;
     
-    if (transactionInfo && checkTransactionStatus) {
-      console.log('收到交易信息，开始监控状态:', transactionInfo);
-      
-      // 先停止可能存在的旧状态检查
-      stopTransactionStatusCheck();
-      
-      // 重置交易状态
-      transactionStatusRef.current = 'loading';
-      setCurrentTransaction(transactionInfo);
-      
-      // 从交易信息中提取签名
-      const signature = transactionInfo.signature?.result || transactionInfo.signature;
-      if (!signature) {
-        console.error('交易信息中没有有效的签名:', transactionInfo);
-        transactionStatusRef.current = 'failed';
-        showTransactionMessage('error', '无效的交易签名');
-        return;
+    if (signature) {
+      console.log('【交易状态检查】开始处理交易:', signature);
+      // 开始轮询交易状态
+      pollTransactionStatus(signature);
+    }
+  
+    // 清除路由参数
+    navigation.setParams({ transactionInfo: null });
+  }, [route.params?.transactionInfo]);
+  
+  // 添加一个静默加载函数
+  const silentLoadUserTokens = async (retryCount = 3, delay = 2000) => {
+    for (let i = 0; i < retryCount; i++) {
+      try {
+        const deviceId = await DeviceManager.getDeviceId();
+        const response = await api.getTokensManagement(selectedWallet.id, deviceId, 'solana');
+
+        if (response.status === 'success' && response.data?.data?.tokens) {
+          const tokens = response.data.data.tokens.map(token => ({
+            ...token,
+            token_address: token.address,
+            balance_formatted: token.balance_formatted || '0'
+          }));
+          
+          setUserTokens(tokens);
+          
+          // 更新 fromToken 和 toToken
+          if (fromToken) {
+            const updatedFromToken = tokens.find(token => 
+              token.address === fromToken.token_address || 
+              token.address === fromToken.address
+            );
+            if (updatedFromToken) {
+              setFromToken({
+                ...updatedFromToken,
+                token_address: updatedFromToken.address
+              });
+            }
+          }
+          
+          if (toToken) {
+            const updatedToToken = tokens.find(token => 
+              token.address === toToken.token_address || 
+              token.address === toToken.address
+            );
+            if (updatedToToken) {
+              setToToken({
+                ...updatedToToken,
+                token_address: updatedToToken.address
+              });
+            }
+          }
+          
+          // 如果成功更新了余额，直接返回
+          return true;
+        }
+      } catch (error) {
+        console.error(`Silent load user tokens error (attempt ${i + 1}):`, error);
       }
       
-      // 开始检查交易状态
-      startTransactionStatusCheck(signature);
-      
-      // 清除路由参数，防止重复处理
-      navigation.setParams({ transactionInfo: null, checkTransactionStatus: false });
+      // 如果不是最后一次尝试，等待指定时间后重试
+      if (i < retryCount - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
-  }, [route?.params]);
+    return false;
+  };
 
-  // 修改检查交易状态的函数
-  const checkTransactionStatus = async (signature) => {
-    // 获取当前状态
-    const currentStatus = transactionStatusRef.current;
-    
-    console.log('[Status Check] Starting transaction status check:', {
-      signature,
-      currentStatus,
-      attempts: maxCheckAttemptsRef.current
-    });
-    
-    // 如果已经是终态，直接停止检查
-    if (currentStatus === 'success' || currentStatus === 'failed' || currentStatus === 'info') {
-      console.log('[Status Check] Transaction already in terminal state:', currentStatus);
-      stopTransactionStatusCheck();
+  // 1. 修改 pollTransactionStatus 函数
+  const pollTransactionStatus = async (signature) => {
+    if (isPolling.current) {
+      console.log('【Transaction Status】Already polling, skip');
       return;
     }
+
+    console.log('【Transaction Status】Start polling:', signature);
     
     if (!signature || !selectedWallet?.id) {
-      console.error('[Status Check] Missing required parameters:', { 
-        signature, 
-        walletId: selectedWallet?.id 
-      });
-      transactionStatusRef.current = 'failed';
-      showTransactionMessage('error', 'Incomplete transaction information');
-      stopTransactionStatusCheck();
+      console.error('【Transaction Status】Missing required params:', { signature, walletId: selectedWallet?.id });
       return;
     }
 
-    try {
-      const deviceId = await DeviceManager.getDeviceId();
-      
-      console.log('[Status Check] Querying transaction status:', {
-        signature,
-        walletId: selectedWallet.id,
-        deviceId
-      });
-      
-      const response = await api.getSolanaSwapStatus(
-        Number(selectedWallet.id),
-        signature,
-        deviceId
-      );
-
-      console.log('[Status Check] Response received:', response);
-
-      if (response.status === 'error') {
-        handleTransactionError(response, signature);
+    isPolling.current = true;
+    let attempts = 0;
+    const maxAttempts = 30;
+    
+    const checkStatus = async () => {
+      if (attempts >= maxAttempts) {
+        setIsLoading(false);
+        setLoadingText('');
+        showTransactionMessage('error', 'Transaction status query timeout');
+        isPolling.current = false;
         return;
       }
 
-      // 处理不同的交易状态
-      switch (response.data?.status) {
-        case 'confirmed':
-          console.log('[Status Check] Transaction confirmed');
-          await handleTransactionSuccess(signature);
-          break;
-        case 'failed':
-          console.log('[Status Check] Transaction failed');
-          handleTransactionFailure();
-          break;
-        case 'pending':
-          console.log('[Status Check] Transaction still pending');
-          break;
-        default:
-          console.log('[Status Check] Unknown status:', response.data?.status);
-          handleUnknownStatus();
-      }
-    } catch (error) {
-      console.error('[Status Check] Error checking status:', error);
-      handleTransactionError({ message: error.message }, signature);
-    }
-  };
+      try {
+        const deviceId = await DeviceManager.getDeviceId();
+        const response = await api.getSolanaSwapStatus(
+          selectedWallet.id,
+          signature,
+          deviceId
+        );
 
-  const handleTransactionSuccess = async (signature) => {
-    console.log('[Transaction Success] Starting success handler:', {
-      currentStatus: transactionStatusRef.current,
-      signature
-    });
-    
-    // 如果已经处理过成功状态，直接返回
-    if (transactionStatusRef.current === 'success') {
-      console.log('[Transaction Success] Already handled success state, skipping');
-      return;
-    }
-    
-    // 更新状态
-    transactionStatusRef.current = 'success';
-    
-    try {
-      // 先停止检查
-      stopTransactionStatusCheck();
-      
-      // 显示成功消息（只显示一次）
-      showTransactionMessage('success', 'Transaction successful');
-      
-      // 重置交易相关状态
-      resetTransactionState();
-      
-      // 刷新用户代币列表
-      await loadUserTokens();
-    } catch (error) {
-      console.error('[Transaction Success] Error handling success:', error);
-    }
-  };
-
-  const handleTransactionFailure = () => {
-    console.log('[Transaction Failure] Starting failure handler:', {
-      currentStatus: transactionStatusRef.current
-    });
-    
-    // 如果已经处理过失败状态，直接返回
-    if (transactionStatusRef.current === 'failed') {
-      console.log('[Transaction Failure] Already handled failure state, skipping');
-      return;
-    }
-    
-    transactionStatusRef.current = 'failed';
-    showTransactionMessage('error', 'Transaction failed');
-    stopTransactionStatusCheck();
-    resetTransactionState();
-  };
-
-  const handleUnknownStatus = () => {
-    if (maxCheckAttemptsRef.current >= 5) {
-      console.log('Status still unknown after multiple checks, setting to unknown state');
-      transactionStatusRef.current = 'info';
-      showTransactionMessage('info', 'Transaction status unknown, please check transaction history later');
-      stopTransactionStatusCheck();
-      resetTransactionState();
-    }
-  };
-
-  const handleTransactionError = (response, signature) => {
-    if (response.message && 
-        (response.message.includes('InstructionError') || 
-         response.message.includes('Transaction failed'))) {
-      console.log('Transaction failure error detected:', response.message);
-      transactionStatusRef.current = 'failed';
-      showTransactionMessage('error', 'Transaction execution failed');
-      stopTransactionStatusCheck();
-      resetTransactionState();
-      return;
-    }
-    
-    if (response.message && response.message.includes('Transaction information is empty')) {
-      console.log('Transaction may not be on-chain yet, continuing to wait...');
-      return;
-    }
-    
-    if (maxCheckAttemptsRef.current >= 3) {
-      console.log('Multiple transaction status query failures');
-      transactionStatusRef.current = 'info';
-      showTransactionMessage('error', 'Unable to verify transaction status');
-      stopTransactionStatusCheck();
-      resetTransactionState();
-      return;
-    }
-  };
-
-  // 添加重置交易状态的函数
-  const resetTransactionState = () => {
-    console.log('Resetting transaction-related states');
-    setAmount('');
-    setQuote(null);
-    setFees(null);
-    setCurrentTransaction(null);
-    
-    // 刷新数据
-    loadUserTokens();
-    loadSwapTokens();
-  };
-
-  // 修改开始检查交易状态的函数
-  const startTransactionStatusCheck = (signature) => {
-    // 先清除可能存在的旧定时器
-    stopTransactionStatusCheck();
-    
-    console.log('Starting transaction status check:', signature);
-    
-    // 重置计数器
-    maxCheckAttemptsRef.current = 0;
-    
-    // 设置交易状态为加载中，但不显示状态栏
-    transactionStatusRef.current = 'loading';
-    
-    // 立即检查一次
-    checkTransactionStatus(signature);
-    
-    // 设置新的定时器，每3秒检查一次
-    const intervalId = setInterval(() => {
-      // 在每次检查前先获取当前状态
-      const currentStatus = transactionStatusRef.current;
-      
-      // 增加计数器
-      maxCheckAttemptsRef.current += 1;
-      
-      // 如果已经达到最大检查次数（10次，约30秒）
-      if (maxCheckAttemptsRef.current >= 10) {
-        console.log('Maximum check attempts reached, stopping check');
-        
-        // 如果状态仍然是 loading，设置为未知状态
-        if (currentStatus === 'loading') {
-          console.log('Transaction status still loading, setting to unknown state');
-          transactionStatusRef.current = 'info';
-          // 显示信息消息
-          showTransactionMessage('info', 'Transaction status query timeout, please check transaction history later');
-          stopTransactionStatusCheck();
-          // 重置交易相关状态
-          resetTransactionState();
+        if (response.status === 'success' && response.data) {
+          const status = response.data.status;
+          
+          if (status === 'pending') {
+            if (!hasShownPending) {
+              setHasShownPending(true);
+              setIsLoading(true);
+              setLoadingText('Transaction is being confirmed');
+              showTransactionMessage('info', 'Transaction is being confirmed');
+            }
+            attempts++;
+            setTimeout(checkStatus, 2000);
+          } else if (status === 'confirmed') {
+            if (!hasShownSuccess) {
+              setHasShownSuccess(true);
+              setIsLoading(false);
+              setLoadingText('');
+              showTransactionMessage('success', 'Transaction confirmed');
+            }
+            isPolling.current = false;
+            return;
+          } else if (status === 'failed') {
+            if (!hasShownFailed) {
+              setHasShownFailed(true);
+              setIsLoading(false);
+              setLoadingText('');
+              showTransactionMessage('error', 'Transaction failed');
+            }
+            isPolling.current = false;
+            return;
+          }
         }
-        
-        return;
+      } catch (error) {
+        console.error('【Transaction Status】Check error:', error);
+        if (!hasShownSuccess && !hasShownFailed) {
+          attempts++;
+          setTimeout(checkStatus, 2000);
+        } else {
+          isPolling.current = false;
+        }
       }
-      
-      // 如果已经是终态，停止检查
-      if (currentStatus === 'success' || currentStatus === 'failed' || currentStatus === 'info') {
-        console.log('Transaction already in terminal state, stopping scheduled check:', currentStatus);
-        stopTransactionStatusCheck();
-        return;
-      }
-      
-      console.log('Scheduled transaction status check:', signature, 'Current status:', currentStatus, 'Check attempts:', maxCheckAttemptsRef.current);
-      checkTransactionStatus(signature);
-    }, 3000);
-    
-    // 保存定时器ID
-    statusCheckTimerRef.current = intervalId;
-  };
+    };
 
-  // 修改停止检查交易状态的函数
-  const stopTransactionStatusCheck = () => {
-    console.log('Stopping transaction status check');
-    if (statusCheckTimerRef.current) {
-      clearInterval(statusCheckTimerRef.current);
-      statusCheckTimerRef.current = null;
+    await checkStatus();
+  };
+  
+  // 3. 修改消息显示函数
+  const showTransactionMessage = (type, text) => {
+    // 如果已经显示了相同的消息，不重复显示
+    if (messageText === text && messageType === type && showMessage) {
+      return;
+    }
+    
+    // 清除之前的定时器
+    if (messageTimeoutRef.current) {
+      clearTimeout(messageTimeoutRef.current);
+    }
+    
+    console.log('【交易状态检查】显示消息:', { type, text });
+    setMessageType(type);
+    setMessageText(text);
+    setShowMessage(true);
+    
+    // 只有在不是 pending 状态时才设置自动隐藏
+    if (text !== 'Transaction is being confirmed') {
+      messageTimeoutRef.current = setTimeout(() => {
+        setShowMessage(false);
+        setMessageType('');
+        setMessageText('');
+      }, 3000);
     }
   };
 
-  // 组件卸载时清理
+  // 5. 组件卸载时清理状态
   useEffect(() => {
     return () => {
-      console.log('组件卸载，清理资源');
-      stopTransactionStatusCheck();
-      transactionStatusRef.current = 'idle';
+      setTxStatus(null);
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -613,30 +538,31 @@ const SwapScreen = ({ navigation, route }) => {
 
   // 添加新的 useEffect 来获取代币价格
   useEffect(() => {
+    let isActive = true;
+    
     const fetchTokenPrices = async () => {
-      if (!fromToken || !toToken || !selectedWallet) return;
+      if (!fromToken || !toToken || !selectedWallet || !isActive) return;
       
       try {
         const deviceId = await DeviceManager.getDeviceId();
-        const tokenAddresses = [fromToken.token_address, toToken.token_address];
+        const tokenAddresses = [
+          fromToken.token_address || fromToken.address,
+          toToken.token_address || toToken.address
+        ].filter(Boolean);
         
-        // 确保使用数字类型的钱包ID
-        const numericWalletId = Number(selectedWallet.id);
+        if (tokenAddresses.length === 0) return;
         
-        console.log('获取代币价格:', {
-          钱包ID: numericWalletId,
-          设备ID: deviceId,
-          代币地址: tokenAddresses.join(',')
+        console.log('【价格更新】获取代币价格:', {
+          代币: tokenAddresses.join(',')
         });
         
         const response = await api.getSolanaTokenPrices(
-          numericWalletId,  // 使用数字类型的钱包ID
+          selectedWallet.id,
           deviceId,
           tokenAddresses
         );
         
-        if (response.status === 'success' && response.data?.prices) {
-          console.log('代币价格数据:', response.data.prices);
+        if (response.status === 'success' && response.data?.prices && isActive) {
           setTokenPrices(response.data.prices);
         }
       } catch (error) {
@@ -646,10 +572,11 @@ const SwapScreen = ({ navigation, route }) => {
 
     fetchTokenPrices();
     
-    // 设置定时器，每60秒刷新一次价格
     const priceInterval = setInterval(fetchTokenPrices, 60000);
-    
-    return () => clearInterval(priceInterval);
+    return () => {
+      isActive = false;
+      clearInterval(priceInterval);
+    };
   }, [fromToken?.token_address, toToken?.token_address, selectedWallet]);
 
   useEffect(() => {
@@ -696,102 +623,6 @@ const SwapScreen = ({ navigation, route }) => {
     }
   }, [route.params]);
 
-  useEffect(() => {
-    if (route.params?.pendingTransaction && route.params?.signature) {
-      // 设置按钮为加载状态
-      setIsLoading(true);
-      setLoadingText('交易确认中');
-      pollTransactionStatus(route.params.signature);
-    }
-  }, [route.params]);
-
-  const pollTransactionStatus = async (signature) => {
-    let attempts = 0;
-    const maxAttempts = 30;
-
-    const checkStatus = async () => {
-      if (attempts >= maxAttempts) {
-        setIsLoading(false);
-        showTransactionMessage('error', 'Transaction processing timeout');
-        return;
-      }
-
-      try {
-        const deviceId = await DeviceManager.getDeviceId();
-        const response = await api.getSolanaSwapStatus(selectedWallet.id, signature);
-        
-        if (response.data?.status === 'confirmed') {
-          // 交易成功：停止加载状态，显示成功消息
-          setIsLoading(false);
-          // 不再调用 showTransactionMessage，避免重复显示
-          await loadUserTokens();
-          return;
-        } else if (response.data?.status === 'failed') {
-          // 交易失败：停止加载状态，显示失败消息
-          setIsLoading(false);
-          // 不再调用 showTransactionMessage，避免重复显示
-          return;
-        }
-
-        attempts++;
-        setTimeout(checkStatus, 2000);
-      } catch (error) {
-        console.error('Transaction status query error:', error);
-        setIsLoading(false);
-        // 不再调用 showTransactionMessage，避免重复显示
-      }
-    };
-
-    await checkStatus();
-  };
-
-  const showTransactionMessage = (type, text) => {
-    console.log('[Message Display] Attempting to show message:', {
-      type,
-      text,
-      currentMessageType: messageType,
-      currentMessageText: messageText,
-      isCurrentlyShowing: showMessage,
-      hasExistingTimer: !!window.messageTimer
-    });
-    
-    // 如果已经显示了相同类型和文本的消息，直接返回
-    if (messageType === type && messageText === text && showMessage) {
-      console.log('[Message Display] Skipping duplicate message');
-      return;
-    }
-    
-    // 如果已经有消息在显示，先清除它
-    if (showMessage) {
-      console.log('[Message Display] Clearing existing message');
-      // 清除可能存在的定时器
-      if (window.messageTimer) {
-        console.log('[Message Display] Clearing existing timer');
-        clearTimeout(window.messageTimer);
-        window.messageTimer = null;
-      }
-    }
-    
-    console.log('[Message Display] Setting new message');
-    
-    // 设置新消息
-    setMessageType(type);
-    setMessageText(text);
-    setShowMessage(true);
-    
-    // 设置新的定时器
-    const duration = type === 'error' ? 5000 : 3000;
-    console.log(`[Message Display] Setting timer for ${duration}ms`);
-    
-    window.messageTimer = setTimeout(() => {
-      console.log('[Message Display] Timer expired, clearing message');
-      setShowMessage(false);
-      setMessageType('');
-      setMessageText('');
-      window.messageTimer = null;
-    }, duration);
-  };
-
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadUserTokens();
@@ -803,58 +634,51 @@ const SwapScreen = ({ navigation, route }) => {
       setIsLoading(true);
       const deviceId = await DeviceManager.getDeviceId();
       
-      console.log('加载用户代币列表:', {
-        walletId: selectedWallet.id,
-        deviceId
-      });
-      
-      const response = await api.getTokensManagement(
-        selectedWallet.id,
-        deviceId,
-        selectedWallet.chain
-      );
-      
-      if (response?.status === 'success' && response.data?.data?.tokens) {
-        const visibleTokens = response.data.data.tokens
-          .filter(token => token.is_visible)
-          .map(token => ({
-            ...token,
-            token_address: token.token_address || token.address
-          }));
+      // 使用正确的 API 方法
+      const response = await api.getTokensManagement(selectedWallet.id, deviceId, 'solana');
 
-        console.log('用户代币列表加载成功:', {
-          总数量: response.data.data.tokens.length,
-          可见代币: visibleTokens.length,
-          代币列表: visibleTokens.map(t => ({
-            符号: t.symbol,
-            余额: t.balance_formatted,
-            精度: t.decimals,
-            地址: t.token_address
-          }))
-        });
+      console.log('Load user tokens response:', response);
+
+      if (response.status === 'success' && response.data?.data?.tokens) {
+        // 注意这里：response.data.data.tokens 才是正确的路径
+        const tokens = response.data.data.tokens.map(token => ({
+          ...token,
+          token_address: token.address,  // 确保 token_address 存在
+          balance_formatted: token.balance_formatted || '0'
+        }));
         
-        // 更新默认代币的余额
-        const solToken = visibleTokens.find(t => t.token_address === DEFAULT_TOKENS.SOL.token_address);
-        const usdcToken = visibleTokens.find(t => t.token_address === DEFAULT_TOKENS.USDC.token_address);
-
-        if (solToken) {
-          setFromToken(prev => ({
-            ...prev,
-            balance_formatted: solToken.balance_formatted
-          }));
+        setUserTokens(tokens);
+        
+        // 更新 fromToken 如果存在
+        if (fromToken) {
+          const updatedFromToken = tokens.find(token => 
+            token.address === fromToken.token_address || 
+            token.address === fromToken.address
+          );
+          if (updatedFromToken) {
+            setFromToken({
+              ...updatedFromToken,
+              token_address: updatedFromToken.address
+            });
+          }
         }
-
-        if (usdcToken) {
-          setToToken(prev => ({
-            ...prev,
-            balance_formatted: usdcToken.balance_formatted
-          }));
+        
+        // 更新 toToken 如果存在
+        if (toToken) {
+          const updatedToToken = tokens.find(token => 
+            token.address === toToken.token_address || 
+            token.address === toToken.address
+          );
+          if (updatedToToken) {
+            setToToken({
+              ...updatedToToken,
+              token_address: updatedToToken.address
+            });
+          }
         }
-
-        setUserTokens(visibleTokens);
       }
     } catch (error) {
-      console.error('加载用户代币列表失败:', error);
+      console.error('Load user tokens error:', error);
       Alert.alert('Error', 'Failed to load token list');
     } finally {
       setIsLoading(false);
@@ -1282,82 +1106,96 @@ const SwapScreen = ({ navigation, route }) => {
     }
   };
 
+  // 2. 修改 handleTokenSelect 函数
   const handleTokenSelect = (type) => {
+    console.log('【Token Select】开始选择代币:', {
+      type,
+      currentFromToken: fromToken?.symbol,
+      currentToToken: toToken?.symbol
+    });
+
+    // 先导航到选择页面
     navigation.navigate('TokenSelect', {
       tokens: type === 'from' ? userTokens : swapTokens,
       type,
-      onSelect: (selectedToken) => {
+      // 添加 onFocus 回调，在页面获得焦点时刷新数据
+      onFocus: async () => {
+        if (type === 'from') {
+          console.log('【Token Select】页面获得焦点，开始刷新余额');
+          const deviceId = await DeviceManager.getDeviceId();
+          
+          try {
+            console.log('【Token Select】调用 API 获取代币列表');
+            const response = await api.getTokensManagement(selectedWallet.id, deviceId, 'solana');
+            console.log('【Token Select】API 响应:', response);
+
+            if (response.status === 'success' && response.data?.data?.tokens) {
+              const tokens = response.data.data.tokens.map(token => ({
+                ...token,
+                token_address: token.address,
+                balance_formatted: token.balance_formatted || '0'
+              }));
+              console.log('【Token Select】更新代币列表:', tokens.length);
+              setUserTokens(tokens);
+            }
+          } catch (error) {
+            console.error('【Token Select】刷新余额失败:', error);
+          }
+        } else {
+          console.log('【Token Select】选择接收代币，不刷新余额');
+        }
+      },
+      onSelect: async (selectedToken) => {
+        console.log('【Token Select】选择了代币:', {
+          symbol: selectedToken.symbol,
+          address: selectedToken.token_address || selectedToken.address
+        });
+
         // 验证代币数据的完整性
         if (!selectedToken.decimals && selectedToken.decimals !== 0) {
-          console.error('选择的代币缺少精度信息:', selectedToken);
-          Alert.alert('提示', '代币数据不完整，请选择其他代币');
+          console.error('【Token Select】选择的代币缺少精度信息:', selectedToken);
+          Alert.alert('Error', 'Incomplete token data, please select another token');
           return;
         }
 
         // 确保代币地址存在
         const tokenAddress = selectedToken.token_address || selectedToken.address;
         if (!tokenAddress) {
-          console.error('选择的代币缺少地址:', selectedToken);
-          Alert.alert('提示', '代币数据不完整，请选择其他代币');
+          console.error('【Token Select】选择的代币缺少地址:', selectedToken);
+          Alert.alert('Error', 'Incomplete token data, please select another token');
           return;
         }
 
-        // 创建规范化的代币对象
-        const normalizedToken = {
-          ...selectedToken,
-          token_address: tokenAddress,
-          balance_formatted: selectedToken.balance_formatted || '0'
-        };
-
-        console.log('选择代币:', {
-          类型: type,
-          代币: normalizedToken.symbol,
-          精度: normalizedToken.decimals,
-          地址: normalizedToken.token_address,
-          余额: normalizedToken.balance_formatted
-        });
-
+        // 获取最新的余额信息（只对支付代币）
         if (type === 'from') {
-          // 如果没有余额信息，尝试从userTokens中查找
-          if (!normalizedToken.balance_formatted || normalizedToken.balance_formatted === '0') {
-            const tokenWithBalance = userTokens.find(t => 
-              (t.token_address === tokenAddress) || 
-              (t.address === tokenAddress) ||
-              (t.symbol === normalizedToken.symbol)
-            );
-            
-            if (tokenWithBalance && tokenWithBalance.balance_formatted) {
-              normalizedToken.balance_formatted = tokenWithBalance.balance_formatted;
-              console.log('从用户代币列表中获取余额:', {
-                代币: normalizedToken.symbol,
-                余额: normalizedToken.balance_formatted
-              });
-            }
-          }
+          const updatedTokens = userTokens;
+          console.log('【Token Select】当前用户代币列表:', updatedTokens.length);
           
+          const tokenWithBalance = updatedTokens.find(t => 
+            t.address === tokenAddress || 
+            t.token_address === tokenAddress
+          );
+          console.log('【Token Select】找到的代币余额信息:', tokenWithBalance?.balance_formatted);
+
+          // 创建规范化的代币对象
+          const normalizedToken = {
+            ...selectedToken,
+            token_address: tokenAddress,
+            balance_formatted: tokenWithBalance?.balance_formatted || '0'
+          };
+          
+          console.log('【Token Select】设置支付代币:', normalizedToken);
           setFromToken(normalizedToken);
-          // 清空金额，因为代币改变后精度可能不同
           setAmount('');
           setQuote(null);
           setFees(null);
         } else {
-          // 如果没有余额信息，尝试从userTokens中查找
-          if (!normalizedToken.balance_formatted || normalizedToken.balance_formatted === '0') {
-            const tokenWithBalance = userTokens.find(t => 
-              (t.token_address === tokenAddress) || 
-              (t.address === tokenAddress) ||
-              (t.symbol === normalizedToken.symbol)
-            );
-            
-            if (tokenWithBalance && tokenWithBalance.balance_formatted) {
-              normalizedToken.balance_formatted = tokenWithBalance.balance_formatted;
-              console.log('从用户代币列表中获取余额:', {
-                代币: normalizedToken.symbol,
-                余额: normalizedToken.balance_formatted
-              });
-            }
-          }
-          
+          // 接收代币直接设置，不需要余额信息
+          const normalizedToken = {
+            ...selectedToken,
+            token_address: tokenAddress
+          };
+          console.log('【Token Select】设置接收代币:', normalizedToken);
           setToToken(normalizedToken);
         }
       }
@@ -1495,14 +1333,7 @@ const SwapScreen = ({ navigation, route }) => {
                   : isQuoteLoading 
                     ? <SkeletonLoader width={120} height={16} style={{ marginTop: 2 }} />
                     : quote?.to_token?.amount
-                      ? (() => {
-                          console.log('Expected amount calculation:', {
-                            originalAmount: quote.to_token.amount,
-                            tokenDecimals: token.decimals,
-                            tokenSymbol: token.symbol
-                          });
-                          return `Expected: ${formatDisplayAmount(quote.to_token.amount, token.decimals)} ${token.symbol}`;
-                        })()
+                      ? `Expected: ${formatDisplayAmount(quote.to_token.amount, token.decimals)} ${token.symbol}`
                       : ''
                 }
               </Text>

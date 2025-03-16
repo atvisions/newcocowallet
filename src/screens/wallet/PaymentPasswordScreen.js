@@ -228,25 +228,22 @@ export default function PaymentPasswordScreen({ route, navigation }) {
               if (signature) {
                 console.log('交易成功，准备返回 Swap 页面');
                 
-                // 立即返回上一页
-                navigation.goBack();
-                
-                // 使用延时确保返回动画完成后再触发回调
-                setTimeout(() => {
-                  setIsProcessing(false);  // 关闭加载状态
-                  setProcessingStatus('');
-                  
-                  // 如果有 onSuccess 回调，传递交易信息
-                  if (route.params?.onSuccess) {
-                    route.params.onSuccess({
-                      signature,
-                      fromToken: swapData.fromSymbol,
-                      toToken: swapData.toSymbol,
-                      amount: swapData.amount,
-                      status: 'success'
-                    });
+                // 使用嵌套导航的方式返回到 Swap 页面
+                navigation.navigate('MainStack', {
+                  screen: 'Tabs',
+                  params: {
+                    screen: 'Swap',
+                    params: {
+                      transactionInfo: {
+                        signature,
+                        fromSymbol: swapData.fromSymbol,
+                        toSymbol: swapData.toSymbol,
+                        amount: swapData.amount,
+                        checkTransactionStatus: true
+                      }
+                    }
                   }
-                }, 300);
+                });
               } else {
                 console.error('警告: 交易响应成功但未获取到签名');
                 handleTransactionError('交易已提交，请稍后查看交易记录');
