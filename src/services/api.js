@@ -762,7 +762,7 @@ export const api = {
   async getSolanaSwapEstimateFees(walletId, fromToken, toToken, amount) {
     try {
       if (!walletId || !fromToken || !toToken || !amount) {
-        console.error('getSolanaSwapEstimateFees: 缺少必要参数');
+        console.error('getSolanaSwapEstimateFees: Missing required parameters');
         throw new Error('Missing required parameters for fee estimation');
       }
       
@@ -773,7 +773,7 @@ export const api = {
         throw new Error('Invalid wallet ID');
       }
       
-      console.log('费用估算请求参数:', {
+      console.log('Fee estimation request parameters:', {
         walletId: numericWalletId,
         fromToken,
         toToken,
@@ -793,10 +793,10 @@ export const api = {
         }
       );
       
-      console.log('费用估算API响应:', response.data);
+      console.log('Fee estimation API response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('费用估算API错误:', error.response?.data || error.message || error);
+      console.error('Fee estimation API error:', error.response?.data || error.message || error);
       return {
         status: 'error',
         message: error.response?.data?.message || error.message || 'Failed to estimate fees',

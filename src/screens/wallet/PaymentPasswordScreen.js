@@ -198,63 +198,61 @@ export default function PaymentPasswordScreen({ route, navigation }) {
             slippage: swapData.slippage
           };
 
-          console.log('准备提交交易，参数:', {
+          console.log('Preparing to submit transaction, parameters:', {
             ...transactionParams,
             payment_password: '******',
             quote_id: '(length:' + swapData.quote_id.length + ')'
           });
 
           // 执行交易
-          try {
-            console.log('开始执行交易...');
-            setProcessingStatus('正在提交交易...');
+          console.log('Starting transaction execution...');
+          setProcessingStatus('Submitting transaction...');
+          
+          // 执行交易
+          const response = await api.executeSolanaSwap(numericWalletId, transactionParams);
+          console.log('Transaction response:', JSON.stringify(response, null, 2));
+          
+          if (response.status === 'success') {
+            // 尝试提取签名
+            let signature = null;
             
-            // 执行交易
-            const response = await api.executeSolanaSwap(numericWalletId, transactionParams);
-            console.log('交易响应:', JSON.stringify(response, null, 2));
+            // 检查 response.data.signature
+            if (response.data && response.data.signature) {
+              console.log('Extracting signature from response.data.signature');
+              signature = typeof response.data.signature === 'object' ? 
+                response.data.signature.result : response.data.signature;
+              console.log('Extracted signature:', signature);
+            }
             
-            if (response.status === 'success') {
-              // 尝试提取签名
-              let signature = null;
+            if (signature) {
+              console.log('Transaction successful, returning to Swap screen');
               
-              // 检查 response.data.signature
-              if (response.data && response.data.signature) {
-                console.log('从 response.data.signature 中提取签名');
-                signature = typeof response.data.signature === 'object' ? 
-                  response.data.signature.result : response.data.signature;
-                console.log('提取到的签名:', signature);
-              }
-              
-              if (signature) {
-                console.log('交易成功，准备返回 Swap 页面');
-                
-                // 使用嵌套导航的方式返回到 Swap 页面
-                navigation.navigate('MainStack', {
-                  screen: 'Tabs',
+              // 跳转回Swap页面，携带签名和fromToken信息
+              navigation.navigate('MainStack', {
+                screen: 'Tabs',
+                params: {
+                  screen: 'Swap',
                   params: {
-                    screen: 'Swap',
-                    params: {
-                      transactionInfo: {
-                        signature,
-                        fromSymbol: swapData.fromSymbol,
-                        toSymbol: swapData.toSymbol,
-                        amount: swapData.amount,
-                        checkTransactionStatus: true
-                      }
+                    transactionInfo: {
+                      signature,
+                      fromSymbol: swapData.fromSymbol,
+                      toSymbol: swapData.toSymbol,
+                      amount: swapData.amount,
+                      fromToken: swapData.from_token,  // 传递当前的fromToken
+                      checkTransactionStatus: true,
+                      // 添加时间戳，确保每次都被视为新的参数
+                      timestamp: Date.now()
                     }
                   }
-                });
-              } else {
-                console.error('警告: 交易响应成功但未获取到签名');
-                handleTransactionError('交易已提交，请稍后查看交易记录');
-              }
+                }
+              });
             } else {
-              console.error('交易执行失败:', response);
-              handleTransactionError(response?.message || '交易执行失败');
+              console.error('Warning: Transaction response successful but no signature received');
+              handleTransactionError('Transaction submitted, please check transaction history');
             }
-          } catch (error) {
-            console.error('交易执行出错:', error);
-            handleTransactionError(error?.message || '交易执行出错，请重试');
+          } else {
+            console.error('Transaction execution failed:', response);
+            handleTransactionError(response?.message || 'Transaction execution failed');
           }
         } catch (error) {
           console.error('Error processing transaction parameters:', error);
@@ -296,7 +294,7 @@ export default function PaymentPasswordScreen({ route, navigation }) {
     setProcessingStatus('');
     navigation.goBack();
     setTimeout(() => {
-      Alert.alert('提示', errorMessage);
+      Alert.alert('Notice', errorMessage);
     }, 300);
   };
 

@@ -62,21 +62,6 @@ const TokenManagement = ({ route, navigation }) => {
         chain: selectedWallet.chain
       });
 
-      // 强制刷新或没有缓存时才请求新数据
-      const cacheKey = `token_management_${selectedWallet.id}`;
-      const cachedData = await AsyncStorage.getItem(cacheKey);
-      const now = Date.now();
-
-      if (!forceRefresh && cachedData) {
-        const { tokens: cachedTokens, timestamp } = JSON.parse(cachedData);
-        if (now - timestamp < CACHE_DURATION) {
-          console.log('Using cached token data');
-          setTokens(cachedTokens);
-          setLoading(false);
-          return;
-        }
-      }
-
       const response = await api.getTokensManagement(
         selectedWallet.id,
         deviceId,
@@ -85,22 +70,30 @@ const TokenManagement = ({ route, navigation }) => {
 
       console.log('[TokenManagement] Token response:', response);
 
-      if (response?.status === 'success' && response.data?.data?.tokens) {
-        const newTokens = response.data.data.tokens.map(token => ({
-          token_address: token.token_address || token.address,
-          name: token.name || 'Unknown Token',
-          symbol: token.symbol || '',
-          logo: token.logo || 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
-          is_visible: typeof token.is_visible === 'boolean' ? token.is_visible : true,
+      if (response?.status === 'success') {
+        // 处理两种可能的数据结构
+        const tokenData = response.fromCache 
+          ? response.data?.tokens || []  // 缓存数据结构
+          : response.data?.data?.tokens || [];  // API 返回的数据结构
+        
+        console.log('Token data:', tokenData);
+        
+        const newTokens = tokenData.map(token => ({
+          token_address: token.address,
+          name: token.name,
+          symbol: token.symbol,
+          logo: token.logo,
+          is_visible: token.is_visible,
+          balance: token.balance,
+          balance_formatted: token.balance_formatted,
+          price_usd: token.price_usd,
+          value_usd: token.value_usd,
+          price_change_24h: token.price_change_24h,
+          is_native: token.is_native
         }));
 
+        console.log('Processed tokens:', newTokens);
         setTokens(newTokens);
-        
-        // 更新缓存
-        await AsyncStorage.setItem(cacheKey, JSON.stringify({
-          tokens: newTokens,
-          timestamp: now
-        }));
       } else {
         console.error('[TokenManagement] Invalid token response:', response);
       }

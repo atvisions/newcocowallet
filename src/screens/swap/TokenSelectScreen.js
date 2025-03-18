@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,19 +10,188 @@ import {
   Image,
   FlatList,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  Toast
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DeviceManager } from '../../utils/device';
+import { api } from '../../services/api';
+import { useWallet } from '../../contexts/WalletContext';
+import { useFocusEffect } from '@react-navigation/native';
+import { debounce } from 'lodash';
 
 const TokenSelectScreen = ({ navigation, route }) => {
-  const { tokens, onSelect, type } = route.params;
+  const { tokens: initialTokens, type, onSelect } = route.params;
+  const { selectedWallet } = useWallet();
+  const [tokens, setTokens] = useState(type === 'to' ? initialTokens : []);
+  const [isLoading, setIsLoading] = useState(type === 'from');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredTokens, setFilteredTokens] = useState(tokens);
+  const [filteredTokens, setFilteredTokens] = useState(type === 'to' ? initialTokens : []);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const insets = useSafeAreaInsets();
 
+  const loadTokens = async () => {
+    if (type === 'from') {
+      try {
+        setIsLoading(true);
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        console.log('Loading user token list:', {
+          deviceId,
+          walletId: selectedWallet.id,
+          chain: selectedWallet.chain
+        });
+
+        const response = await api.getTokensManagement(
+          selectedWallet.id,
+          deviceId,
+          selectedWallet.chain
+        );
+
+        console.log('Token response:', response);
+
+        if (response?.status === 'success') {
+          const tokenData = response.fromCache 
+            ? response.data?.tokens || []
+            : response.data?.data?.tokens || [];
+          
+          const newTokens = tokenData
+            .filter(token => token.is_visible)
+            .map(token => ({
+              ...token,
+              token_address: token.address || token.token_address,
+              balance_formatted: token.balance_formatted || '0'
+            }));
+
+          const validTokens = newTokens.filter(token => {
+            const isValid = token.token_address && 
+                           token.symbol && 
+                           token.decimals !== undefined;
+            
+            if (!isValid) {
+              console.error('Invalid token data detected:', {
+                address: token.token_address,
+                symbol: token.symbol,
+                decimals: token.decimals
+              });
+            }
+            return isValid;
+          });
+
+          console.log('Processed token list:', validTokens.map(t => ({
+            symbol: t.symbol,
+            decimals: t.decimals,
+            address: t.token_address,
+            balance: t.balance_formatted
+          })));
+
+          setTokens(validTokens);
+          setFilteredTokens(searchQuery ? filterTokens(searchQuery, validTokens) : validTokens);
+        } else {
+          throw new Error('Invalid response');
+        }
+      } catch (error) {
+        console.error('Failed to load user token list:', error);
+        if (route.params?.tokens?.length > 0) {
+          console.log('Using token list from route parameters');
+          setTokens(route.params.tokens);
+          setFilteredTokens(route.params.tokens);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      try {
+        setIsLoading(true);
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            const response = await api.getSolanaSwapTokens(
+              selectedWallet.id,
+              deviceId
+            );
+
+            if (response?.status === 'success' && response.data?.tokens) {
+              const newTokens = response.data.tokens;
+              setTokens(newTokens);
+              setFilteredTokens(searchQuery ? filterTokens(searchQuery, newTokens) : newTokens);
+              break;
+            } else {
+              throw new Error('Invalid response format');
+            }
+          } catch (error) {
+            retryCount++;
+            if (retryCount === maxRetries) {
+              throw error;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load swap token list:', error);
+        const defaultTokens = [
+          {
+            symbol: 'SOL',
+            name: 'Solana',
+            token_address: 'So11111111111111111111111111111111111111112',
+            decimals: 9,
+            logo: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+          },
+          {
+            symbol: 'USDC',
+            name: 'USD Coin',
+            token_address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+            decimals: 6,
+            logo: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
+          },
+        ];
+        
+        setTokens(defaultTokens);
+        setFilteredTokens(defaultTokens);
+        Toast.show('Unable to load complete token list, showing default tokens', 'error');
+      }
+    }
+  };
+
+  const onRefresh = React.useCallback(() => {
+    if (type === 'from') {
+      setIsRefreshing(true);
+      loadTokens();
+    }
+  }, [type]);
+
+  const debouncedLoadTokens = useCallback(
+    debounce(() => {
+      loadTokens();
+    }, 300),
+    []
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (type === 'from') {
+        loadTokens();
+      }
+      return () => {
+        if (type === 'from') {
+          setTokens([]);
+          setFilteredTokens([]);
+        }
+      };
+    }, [selectedWallet?.id, type])
+  );
+
   useEffect(() => {
+    if (!tokens) return;
+    
     if (searchQuery.trim() === '') {
       setFilteredTokens(tokens);
     } else {
@@ -43,6 +212,7 @@ const TokenSelectScreen = ({ navigation, route }) => {
         onSelect(item);
         navigation.goBack();
       }}
+      key={item.token_address || item.address}
     >
       <Image 
         source={{ uri: item.logo }} 
@@ -50,14 +220,13 @@ const TokenSelectScreen = ({ navigation, route }) => {
         defaultSource={require('../../../assets/default-token.png')}
       />
       <View style={styles.tokenInfo}>
-        <Text style={styles.tokenSymbol}>{item.symbol}</Text>
+        <View style={styles.tokenNameRow}>
+          <Text style={styles.tokenSymbol}>{item.symbol}</Text>
+          <Text style={styles.tokenBalance}>
+            {type === 'from' ? `Balance: ${item.balance_formatted || '0'}` : ''}
+          </Text>
+        </View>
         <Text style={styles.tokenName}>{item.name}</Text>
-      </View>
-      <View style={styles.tokenBalance}>
-        <Text style={styles.balanceText}>{item.balance_formatted}</Text>
-        <Text style={styles.balanceUsd}>
-          ${parseFloat(item.value_usd).toFixed(2)}
-        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -114,15 +283,33 @@ const TokenSelectScreen = ({ navigation, route }) => {
         <FlatList
           data={filteredTokens}
           renderItem={renderTokenItem}
-          keyExtractor={item => item.address}
+          keyExtractor={item => item.token_address || item.address || item.symbol}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            type === 'from' ? (
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#1FC595"
+                colors={['#1FC595']}
+              />
+            ) : null
+          }
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No matching tokens found</Text>
+              <Text style={styles.emptyText}>
+                {isLoading ? 'Loading...' : searchQuery ? 'No matching tokens found' : 'No tokens available'}
+              </Text>
             </View>
           )}
         />
       </View>
+
+      {isLoading && !isRefreshing && type === 'from' && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#1FC595" />
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -215,16 +402,12 @@ const styles = StyleSheet.create({
     color: '#8E8E8E',
     fontSize: 14,
   },
+  tokenNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   tokenBalance: {
-    alignItems: 'flex-end',
-  },
-  balanceText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  balanceUsd: {
     color: '#8E8E8E',
     fontSize: 14,
   },
@@ -237,6 +420,16 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#8E8E8E',
     fontSize: 16,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(23, 28, 50, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
