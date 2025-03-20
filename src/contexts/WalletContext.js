@@ -122,6 +122,27 @@ export const WalletProvider = ({ children }) => {
     };
   }, [tokensData]);
 
+  const refreshTokens = useCallback(async () => {
+    try {
+      if (!selectedWallet?.id) return;
+      
+      const deviceId = await DeviceManager.getDeviceId();
+      const response = await api.getWalletTokens(
+        deviceId,
+        selectedWallet.id,
+        selectedWallet.chain
+      );
+
+      if (response?.status === 'success' && response?.data?.tokens) {
+        const visibleTokens = response.data.tokens.filter(token => token.is_visible);
+        setTokens(visibleTokens);
+        updateTokensCache(selectedWallet.id, response.data);
+      }
+    } catch (error) {
+      console.error('刷新代币列表失败:', error);
+    }
+  }, [selectedWallet?.id]);
+
   const value = {
     wallets,
     selectedWallet,
@@ -136,7 +157,8 @@ export const WalletProvider = ({ children }) => {
     setTokens,
     tokensData,
     updateTokensCache,
-    getTokensCache
+    getTokensCache,
+    refreshTokens,
   };
 
   return (

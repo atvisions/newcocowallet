@@ -13,7 +13,9 @@ import {
   RefreshControl,
   Alert,
   ActivityIndicator,
-  AppState
+  AppState,
+  Animated,
+  Easing
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
@@ -40,6 +42,7 @@ const WalletScreen = ({ navigation }) => {
   const currentWalletIdRef = useRef(null);  // 用来跟踪当前钱包ID
   const [appState, setAppState] = useState(AppState.currentState);
   const appStateRef = useRef(AppState.currentState);
+  const skeletonAnim = useRef(new Animated.Value(-100)).current;
 
   useWalletNavigation(navigation);
 
@@ -73,20 +76,31 @@ const WalletScreen = ({ navigation }) => {
 
   useEffect(() => {
     if (selectedWallet) {
-      // 更新当前钱包ID引用
-      currentWalletIdRef.current = selectedWallet.id;
-      
-      // 立即清空数据
-      setTokens([]);
-      setTotalBalance('0.00');
-      setChange24h(0);
-      
-      console.log('钱包切换，准备加载新数据:', {
-        walletId: selectedWallet.id,
-        chain: selectedWallet.chain
-      });
-      
-      loadTokens(true);
+      const loadNewWalletData = async () => {
+        // 更新当前钱包ID引用
+        currentWalletIdRef.current = selectedWallet.id;
+        
+        // 先设置加载状态
+        setIsLoading(true);
+        
+        // 等待一帧以确保加载状态被渲染
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        
+        // 清空数据
+        setTokens([]);
+        setTotalBalance('0.00');
+        setChange24h(0);
+        
+        console.log('钱包切换，准备加载新数据:', {
+          walletId: selectedWallet.id,
+          chain: selectedWallet.chain
+        });
+        
+        // 加载新数据
+        await loadTokens(true);
+      };
+
+      loadNewWalletData();
     }
   }, [selectedWallet?.id]);
 
@@ -145,6 +159,21 @@ const WalletScreen = ({ navigation }) => {
     }
   }, [change24h]);
 
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.timing(skeletonAnim, {
+          toValue: 100,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.linear
+        })
+      ).start();
+    } else {
+      skeletonAnim.setValue(-100);
+    }
+  }, [isLoading]);
+
   const loadInitialData = async () => {
     try {
       setIsLoading(true);
@@ -186,28 +215,6 @@ const WalletScreen = ({ navigation }) => {
     const requestWalletId = currentWalletIdRef.current;
     
     try {
-      // 首先检查缓存
-      const { data: cachedData, lastUpdate } = getTokensCache(selectedWallet?.id);
-      const cacheAge = Date.now() - lastUpdate;
-      const CACHE_TIMEOUT = 30000; // 30秒缓存时间
-      
-      // 如果有缓存且缓存时间在30秒内，直接使用缓存数据
-      if (cachedData && cacheAge < CACHE_TIMEOUT) {
-        console.log('使用缓存的代币数据:', {
-          walletId: selectedWallet?.id,
-          cacheAge: `${cacheAge}ms`
-        });
-        
-        if (requestWalletId === currentWalletIdRef.current) {
-          const { tokens: cachedTokens, total_value_usd } = cachedData;
-          const visibleTokens = cachedTokens.filter(token => token.is_visible);
-          setTokens(visibleTokens);
-          setTotalBalance(total_value_usd || '0.00');
-          calculateChange24h(visibleTokens);
-        }
-        return;
-      }
-
       if (showLoading) {
         setIsLoading(true);
       }
@@ -215,41 +222,20 @@ const WalletScreen = ({ navigation }) => {
       const deviceId = await DeviceManager.getDeviceId();
       if (!selectedWallet) return;
 
-      console.log('开始请求代币数据:', {
-        requestWalletId,
-        currentWalletId: selectedWallet.id,
-        chain: selectedWallet.chain
-      });
-
+      // 强制刷新，不使用缓存
       const response = await api.getWalletTokens(
         deviceId,
         selectedWallet.id,
         selectedWallet.chain
       );
 
-      // 检查当前钱包ID是否仍然匹配
-      if (requestWalletId !== currentWalletIdRef.current) {
-        console.log('忽略过期响应:', {
-          requestWalletId,
-          currentWalletId: currentWalletIdRef.current
-        });
-        return;
-      }
-
       if (response?.status === 'success' && response?.data?.tokens) {
         const { tokens: newTokens, total_value_usd } = response.data;
         const visibleTokens = newTokens.filter(token => token.is_visible);
         
-        console.log('设置新的代币数据:', {
-          requestWalletId,
-          currentWalletId: currentWalletIdRef.current,
-          tokensCount: visibleTokens.length
-        });
-        
         // 更新缓存
         updateTokensCache(selectedWallet.id, response.data);
         
-        // 再次检查钱包ID是否匹配
         if (requestWalletId === currentWalletIdRef.current) {
           setTokens(visibleTokens);
           setTotalBalance(total_value_usd || '0.00');
@@ -258,12 +244,6 @@ const WalletScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('加载代币失败:', error);
-      // 只有当钱包ID仍然匹配时才清空数据
-      if (requestWalletId === currentWalletIdRef.current) {
-        setTokens([]);
-        setTotalBalance('0.00');
-        setChange24h(0);
-      }
     } finally {
       if (requestWalletId === currentWalletIdRef.current) {
         setIsLoading(false);
@@ -466,20 +446,21 @@ const WalletScreen = ({ navigation }) => {
         <Text style={styles.balanceLabel}>Balance</Text>
         <View style={styles.balanceRow}>
           {isLoading ? (
-            <View style={{ width: '100%' }}>
-              <View style={{ 
-                height: 60, 
-                width: '70%', 
-                borderRadius: 8, 
-                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                marginBottom: 8 
-              }} />
-              <View style={{ 
-                height: 24, 
-                width: 100, 
-                borderRadius: 12,
-                backgroundColor: 'rgba(255, 255, 255, 0.06)' 
-              }} />
+            <View style={styles.balanceSkeletonContainer}>
+              <View style={styles.balanceRowSkeleton}>
+                {/* 总价值骨架 */}
+                <View style={styles.balanceAmountSkeleton}>
+                  <Animated.View style={[styles.skeletonPulse, {
+                    transform: [{ translateX: skeletonAnim }]
+                  }]} />
+                </View>
+                {/* 24小时涨跌骨架 */}
+                <View style={styles.balanceChangeSkeleton}>
+                  <Animated.View style={[styles.skeletonPulse, {
+                    transform: [{ translateX: skeletonAnim }]
+                  }]} />
+                </View>
+              </View>
             </View>
           ) : (
             <>
@@ -538,17 +519,47 @@ const WalletScreen = ({ navigation }) => {
   };
 
   const renderTokenSkeleton = () => {
-    return Array(4).fill(0).map((_, index) => (
-      <View key={`skeleton-${index}`} style={[styles.tokenItemCard, { backgroundColor: 'rgba(255, 255, 255, 0.03)', marginBottom: 8 }]}>
-        <View style={[styles.tokenLogo, { backgroundColor: 'rgba(255, 255, 255, 0.06)' }]} />
+    // 从缓存中获取上次的代币数量，如果没有则默认显示3个
+    const { data: cachedData } = getTokensCache(selectedWallet?.id);
+    const lastTokenCount = cachedData?.tokens?.filter(token => token.is_visible)?.length || 3;
+    
+    return Array(lastTokenCount).fill(0).map((_, index) => (
+      <View key={`skeleton-${index}`} style={[
+        styles.tokenItemCard, 
+        { 
+          backgroundColor: 'rgba(40, 42, 70, 0.6)',
+          marginBottom: index === lastTokenCount - 1 ? 0 : 6 // 最后一个不加margin
+        }
+      ]}>
+        <View style={[styles.tokenLogo, { backgroundColor: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }]}>
+          <Animated.View style={[styles.skeletonPulse, {
+            transform: [{ translateX: skeletonAnim }]
+          }]} />
+        </View>
         <View style={styles.tokenInfo}>
           <View style={styles.tokenHeader}>
-            <View style={{ width: 120, height: 20, borderRadius: 6, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
-            <View style={{ width: 80, height: 20, borderRadius: 6, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
+            <View style={{ width: 100, height: 18, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+              <Animated.View style={[styles.skeletonPulse, {
+                transform: [{ translateX: skeletonAnim }]
+              }]} />
+            </View>
+            <View style={{ width: 80, height: 18, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+              <Animated.View style={[styles.skeletonPulse, {
+                transform: [{ translateX: skeletonAnim }]
+              }]} />
+            </View>
           </View>
           <View style={styles.tokenDetails}>
-            <View style={{ width: 100, height: 16, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
-            <View style={{ width: 70, height: 16, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.06)' }} />
+            <View style={{ width: 120, height: 14, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.08)', marginTop: 8, overflow: 'hidden' }}>
+              <Animated.View style={[styles.skeletonPulse, {
+                transform: [{ translateX: skeletonAnim }]
+              }]} />
+            </View>
+            <View style={{ width: 60, height: 14, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.08)', marginTop: 8, overflow: 'hidden' }}>
+              <Animated.View style={[styles.skeletonPulse, {
+                transform: [{ translateX: skeletonAnim }]
+              }]} />
+            </View>
           </View>
         </View>
       </View>
@@ -558,7 +569,9 @@ const WalletScreen = ({ navigation }) => {
   const renderAssetsSection = () => (
     <View style={styles.assetsSection}>
       {isLoading ? (
-        renderTokenSkeleton()
+        <View style={styles.tokenList}>
+          {renderTokenSkeleton()}
+        </View>
       ) : (
         <FlatList
           data={tokens}
@@ -921,18 +934,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   balanceAmountSkeleton: {
-    height: 60,  // 匹配 balanceAmount 的高度
-    width: '80%',
+    height: 52,
+    width: '60%',
+    borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
+    marginRight: 12,
     overflow: 'hidden',
-    marginBottom: 4,
   },
-  changeSkeleton: {
-    height: 40,  // 匹配 changeIndicator 的高度
-    width: 130,
+  balanceChangeSkeleton: {
+    height: 24,
+    width: 80,
+    borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 20,
     overflow: 'hidden',
   },
   skeletonAnimation: {
@@ -1122,6 +1135,37 @@ const styles = StyleSheet.create({
     color: '#8E8E8E',
     fontSize: 16,
     fontWeight: '500',
+  },
+  skeletonPulse: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  balanceSkeletonContainer: {
+    width: '100%',
+  },
+  balanceRowSkeleton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  changeIconSkeleton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginRight: 8,
+    overflow: 'hidden',
+  },
+  changeTextSkeleton: {
+    height: 24,
+    width: 80,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
   },
 });
 

@@ -33,6 +33,60 @@ import axios from 'axios';
 import { BASE_URL } from '../../config/constants'; // 确保导入BASE_URL
 import Toast, { ToastView } from '../../components/Toast';
 
+// 添加TokenLogo组件到SwapScreen.js文件顶部
+
+// 使用代币符号生成颜色代码
+const getColorFromSymbol = (symbol) => {
+  if (!symbol) return '#1FC595';
+  
+  // 简单的哈希函数生成颜色
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  // 转换为HSL颜色，保持亮度和饱和度适中
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 70%, 60%)`;
+};
+
+// 创建一个更可靠的TokenLogo组件
+const TokenLogo = ({ uri, symbol, style }) => {
+  const [hasError, setHasError] = useState(false);
+  const backgroundColor = getColorFromSymbol(symbol);
+  
+  // 如果图片加载失败或者是SVG，显示文字图标
+  if (hasError || !uri || uri.toLowerCase().endsWith('.svg')) {
+    const initial = symbol ? symbol.charAt(0).toUpperCase() : '?';
+    
+    return (
+      <View style={[style, { 
+        backgroundColor, 
+        justifyContent: 'center', 
+        alignItems: 'center' 
+      }]}>
+        <Text style={{
+          color: '#FFFFFF',
+          fontSize: style.width * 0.5,
+          fontWeight: 'bold'
+        }}>
+          {initial}
+        </Text>
+      </View>
+    );
+  }
+
+  // 尝试加载图片
+  return (
+    <Image
+      style={style}
+      source={{ uri }}
+      onError={() => setHasError(true)}
+      defaultSource={require('../../../assets/default-token.png')}
+    />
+  );
+};
+
 const SkeletonLoader = ({ width, height, style }) => {
   return (
     <View
@@ -1558,46 +1612,54 @@ const SwapScreen = ({ navigation, route }) => {
   };
 
   const handleTokenSelect = (type) => {
-    // 直接导航到代币选择页面，不预加载数据
-    navigation.navigate('TokenSelect', {
-      tokens: type === 'from' ? userTokens : swapTokens, // 使用当前的代币列表
-      type,
-      onSelect: (selectedToken) => {
-        // 验证代币数据的完整性
-        if (!selectedToken.decimals && selectedToken.decimals !== 0) {
-          console.error('选择的代币缺少精度信息:', selectedToken);
-          Alert.alert('Notice', 'Incomplete token data, please select another token');
-          return;
-        }
-
-        // 确保代币地址存在
-        const tokenAddress = selectedToken.token_address || selectedToken.address;
-        if (!tokenAddress) {
-          console.error('选择的代币缺少地址:', selectedToken);
-          Alert.alert('Notice', 'Incomplete token data, please select another token');
-          return;
-        }
-
-          // 创建规范化的代币对象
+    // 根据类型导航到不同的代币列表页面
+    if (type === 'from') {
+      navigation.navigate('PaymentTokenList', {
+        selectedToken: fromToken,
+        onSelectToken: (token) => {
+          console.log('选择支付代币:', {
+            symbol: token.symbol,
+            address: token.token_address || token.address
+          });
+          
+          // 确保代币对象格式一致
           const normalizedToken = {
-            ...selectedToken,
-            token_address: tokenAddress,
-          balance_formatted: selectedToken.balance_formatted || '0'
+            ...token,
+            token_address: token.token_address || token.address,
+            balance_formatted: token.balance_formatted || '0'
           };
           
-        // 更新对应的代币状态
-        if (type === 'from') {
           setFromToken(normalizedToken);
-        } else {
-          setToToken(normalizedToken);
-        }
-        
-        // 清空金额和报价
+          // 清空输入金额和报价
           setAmount('');
           setQuote(null);
           setFees(null);
-      }
-    });
+        }
+      });
+    } else {
+      navigation.navigate('ReceivingTokenList', {
+        selectedToken: toToken,
+        onSelectToken: (token) => {
+          console.log('选择接收代币:', {
+            symbol: token.symbol,
+            address: token.token_address || token.address
+          });
+          
+          // 确保代币对象格式一致
+          const normalizedToken = {
+            ...token,
+            token_address: token.token_address || token.address,
+            balance_formatted: token.balance_formatted || '0'
+          };
+          
+          setToToken(normalizedToken);
+          // 清空输入金额和报价
+          setAmount('');
+          setQuote(null);
+          setFees(null);
+        }
+      });
+    }
   };
 
   const calculateExchangeRate = (quote, fromToken, toToken) => {
@@ -1675,10 +1737,10 @@ const SwapScreen = ({ navigation, route }) => {
       >
         {token ? (
           <>
-            <Image 
-              source={{ uri: token.logo }} 
+            <TokenLogo 
+              uri={token.logo} 
+              symbol={token.symbol}
               style={styles.tokenLogo} 
-              defaultSource={require('../../../assets/default-token.png')}
             />
             <View style={styles.tokenInfo}>
               <View style={styles.tokenNameRow}>

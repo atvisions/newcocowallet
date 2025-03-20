@@ -137,10 +137,9 @@ const TokenManagement = ({ route, navigation }) => {
           timestamp: Date.now()
         }));
 
-        // 确保回调被调用
-        if (typeof onTokenVisibilityChanged === 'function') {
-          console.log('Calling visibility changed callback');
-          onTokenVisibilityChanged();
+        // 确保回调被调用，并等待其完成
+        if (onTokenVisibilityChanged) {
+          await onTokenVisibilityChanged();
         }
       }
     } catch (error) {

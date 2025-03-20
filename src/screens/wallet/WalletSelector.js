@@ -55,8 +55,13 @@ export default function WalletSelector({ navigation }) {
 
   const handleSelectWallet = async (wallet) => {
     try {
+      if (selectedWallet?.id === wallet.id) {
+        navigation.goBack();
+        return;
+      }
+
       navigation.goBack();
-      updateSelectedWallet(wallet);
+      await updateSelectedWallet(wallet);
     } catch (error) {
       console.error('Failed to select wallet:', error);
     }

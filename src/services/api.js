@@ -3,19 +3,23 @@ import { DeviceManager } from '../utils/device';
 import { logger } from '../utils/logger';
 
 // 确保 BASE_URL 是正确的
-const BASE_URL = 'https://api.cocowallet.io/api/v1';
-
+const BASE_URL = 'http://192.168.3.16:8000/api/v1';
+//const BASE_URL = 'https://api.cocowallet.io/api/v1';
 // 创建 axios 实例
-const instance = axios.create({
+const axiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 60000,  // 增加超时时间到60秒
   headers: {
     'Content-Type': 'application/json',
+  },
+  maxRedirects: 0,
+  validateStatus: function (status) {
+    return status >= 200 && status < 400;
   }
 });
 
 // 修改响应拦截器
-instance.interceptors.response.use(
+axiosInstance.interceptors.response.use(
   response => response,
   error => {
     if (error.response) {
@@ -69,10 +73,11 @@ const handleApiError = (error, defaultMessage) => {
   };
 };
 
+// 使用配置好的实例
 export const api = {
   async setPaymentPassword(deviceId, password, confirmPassword, useBiometric = false) {
     try {
-      const response = await instance.post('/wallets/set_password/', {
+      const response = await axiosInstance.post('/wallets/set_password/', {
         device_id: deviceId,
         payment_password: password,
         payment_password_confirm: confirmPassword,
@@ -88,7 +93,7 @@ export const api = {
 
   async getSupportedChains() {
     try {
-      const response = await instance.get('/wallets/get_supported_chains/');
+      const response = await axiosInstance.get('/wallets/get_supported_chains/');
       return response.data;
     } catch (error) {
       throw error;
@@ -97,7 +102,7 @@ export const api = {
 
   async selectChain(deviceId, chain) {
     try {
-      const response = await instance.post('/wallets/select_chain/', {
+      const response = await axiosInstance.post('/wallets/select_chain/', {
         device_id: deviceId,
         chain
       });
@@ -108,7 +113,7 @@ export const api = {
   },
 
   async verifyMnemonic(deviceId, chain, mnemonic, chainType) {
-    const response = await instance.post('/wallets/verify_mnemonic/', {
+    const response = await axiosInstance.post('/wallets/verify_mnemonic/', {
       device_id: deviceId,
       chain,
       mnemonic
@@ -123,7 +128,7 @@ export const api = {
 
   async getWallets(deviceId) {
     try {
-      const response = await instance.get(`/wallets/?device_id=${deviceId}`);
+      const response = await axiosInstance.get(`/wallets/?device_id=${deviceId}`);
       return response.data;
     } catch (error) {
       return handleApiError(error, 'Failed to get wallets');
@@ -132,7 +137,7 @@ export const api = {
 
   async renameWallet(walletId, deviceId, newName) {
     try {
-      const response = await instance.post(`/wallets/${walletId}/rename_wallet/`, {
+      const response = await axiosInstance.post(`/wallets/${walletId}/rename_wallet/`, {
         device_id: deviceId,
         new_name: newName
       });
@@ -144,7 +149,7 @@ export const api = {
 
   async deleteWallet(walletId, deviceId, paymentPassword) {
     try {
-      const response = await instance.post(`/wallets/${walletId}/delete_wallet/`, {
+      const response = await axiosInstance.post(`/wallets/${walletId}/delete_wallet/`, {
         device_id: deviceId,
         payment_password: paymentPassword
       });
@@ -160,7 +165,7 @@ export const api = {
 
   async changePaymentPassword(deviceId, oldPassword, newPassword, confirmPassword) {
     try {
-      const response = await instance.post('/wallets/change_password/', {
+      const response = await axiosInstance.post('/wallets/change_password/', {
         device_id: deviceId,
         old_password: oldPassword,
         new_password: newPassword,
@@ -178,7 +183,7 @@ export const api = {
 
   async checkPaymentPasswordStatus(deviceId) {
     try {
-      const response = await instance.get(`/wallets/payment_password/status/${deviceId}/`);
+      const response = await axiosInstance.get(`/wallets/payment_password/status/${deviceId}/`);
       return response.data?.data?.has_payment_password || false;
     } catch (error) {
       // 返回标准格式的错误响应
@@ -192,7 +197,7 @@ export const api = {
 
   async verifyPaymentPassword(deviceId, password) {
     try {
-      const response = await instance.post('/wallets/verify_password/', {
+      const response = await axiosInstance.post('/wallets/verify_password/', {
         device_id: deviceId,
         payment_password: password
       });
@@ -209,7 +214,7 @@ export const api = {
   async getTokens(deviceId, chain, walletId) {
     try {
       const chainPath = getChainPath(chain);
-      const response = await instance.get(`/${chainPath}/wallets/${walletId}/tokens/?device_id=${deviceId}`);
+      const response = await axiosInstance.get(`/${chainPath}/wallets/${walletId}/tokens/?device_id=${deviceId}`);
       return response.data;
     } catch (error) {
       throw error;
@@ -219,7 +224,7 @@ export const api = {
   async getTokenTransfers(deviceId, chain, walletId, page = 1, pageSize = 20) {
     try {
       const chainPath = getChainPath(chain);
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/${chainPath}/wallets/${walletId}/token-transfers/`,
         {
           params: {
@@ -238,7 +243,7 @@ export const api = {
   async getNFTCollections(deviceId, chain, walletId) {
     try {
       const chainPath = getChainPath(chain);
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/${chainPath}/nfts/collections/${walletId}/`,
         {
           params: {
@@ -264,14 +269,14 @@ export const api = {
       }
 
       if (chain === 'sol') {
-        const response = await instance.get(url, {
+        const response = await axiosInstance.get(url, {
           params: {
             device_id: deviceId
           }
         });
         return response.data;
       } else {
-        const response = await instance.get(url);
+        const response = await axiosInstance.get(url);
         return response.data;
       }
     } catch (error) {
@@ -286,7 +291,7 @@ export const api = {
         return null;
       }
 
-      const response = await instance.post(
+      const response = await axiosInstance.post(
         `/${chainPath}/wallets/${walletId}/tokens/toggle-visibility/`,
         {
           token_address: tokenAddress
@@ -307,7 +312,7 @@ export const api = {
   getTokensManagement: async (walletId, deviceId, chain) => {
     const chainPath = getChainPath(chain);
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/${chainPath}/wallets/${walletId}/tokens/manage/`,
         {
           params: { device_id: deviceId }
@@ -325,7 +330,7 @@ export const api = {
 
   async getPrivateKey(walletId, deviceId, password) {
     try {
-      const response = await instance.post(`/wallets/${walletId}/show_private_key/`, {
+      const response = await axiosInstance.post(`/wallets/${walletId}/show_private_key/`, {
         device_id: deviceId,
         payment_password: password
       });
@@ -341,7 +346,7 @@ export const api = {
 
   getPrivateKeyWithBiometric: async (walletId, deviceId) => {
     try {
-      const response = await instance.post(
+      const response = await axiosInstance.post(
         `/wallets/${walletId}/show_private_key/biometric/`,
         {
           device_id: deviceId,
@@ -360,7 +365,7 @@ export const api = {
 
   enableBiometric: async (deviceId, paymentPassword) => {
     try {
-      const response = await instance.post('/wallets/biometric/enable/', {
+      const response = await axiosInstance.post('/wallets/biometric/enable/', {
         device_id: deviceId,
         payment_password: paymentPassword
       });
@@ -377,7 +382,7 @@ export const api = {
 
   disableBiometric: async (deviceId) => {
     try {
-      const response = await instance.post('/wallets/biometric/disable/', {
+      const response = await axiosInstance.post('/wallets/biometric/disable/', {
         device_id: deviceId
       });
       return response.data;
@@ -409,7 +414,7 @@ export const api = {
 
   async importPrivateKey(deviceId, chain, privateKey, password) {
     try {
-      const response = await instance.post('/wallets/import_private_key/', {
+      const response = await axiosInstance.post('/wallets/import_private_key/', {
         device_id: deviceId,
         chain,
         private_key: privateKey,
@@ -428,7 +433,7 @@ export const api = {
         throw new Error('Missing device_id parameter');
       }
       
-      const response = await instance.post(`/evm/wallets/${walletId}/transfer/`, {
+      const response = await axiosInstance.post(`/evm/wallets/${walletId}/transfer/`, {
         device_id: params.device_id,
         to_address: params.to_address,
         amount: params.amount,
@@ -448,7 +453,7 @@ export const api = {
 
   async getTransactionStatus(deviceId, txHash, walletId) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/transaction-status/`,
         {
           params: {
@@ -475,7 +480,7 @@ export const api = {
 
   async getTokenDetails(deviceId, walletId, symbol) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/tokens/${symbol}/detail`,
         {
           params: {
@@ -514,7 +519,7 @@ export const api = {
 
   async sendSolanaTransaction(walletId, params) {
     try {
-      const response = await instance.post(
+      const response = await axiosInstance.post(
         `/solana/wallets/${walletId}/transfer/`,
         {
           ...params,
@@ -530,7 +535,7 @@ export const api = {
 
   async getSolanaTokenDetail(deviceId, walletId, tokenAddress) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/tokens/SOL/${tokenAddress}/detail`,
         {
           params: {
@@ -547,7 +552,7 @@ export const api = {
   async getTransactionHistory(deviceId, walletId, chain, page = 1, pageSize = 20) {
     try {
       const chainPath = getChainPath(chain);
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/${chainPath}/wallets/${walletId}/token-transfers/`,
         {
           params: {
@@ -581,20 +586,27 @@ export const api = {
     }
   },
 
-  getRecommendedTokens: async (deviceId, chain, chainPath) => {
+  getRecommendedTokens: async (deviceId, chain, chainPath = 'solana') => {
     try {
-      const response = await instance.get(
-        `/${chainPath}/wallets/recommended-tokens/?chain=${chain.toUpperCase()}`
+      const response = await axiosInstance.get(
+        `/${chainPath}/wallets/recommended-tokens/`,
+        {
+          params: { 
+            chain: chain.toUpperCase(),
+            device_id: deviceId
+          }
+        }
       );
       return response.data;
     } catch (error) {
-      return { status: 'success', data: { tokens: [] } }; // 返回空数组而不是抛出错误
+      console.error('Failed to get recommended tokens:', error);
+      return { status: 'success', data: [] }; // 返回空数组而不是抛出错误
     }
   },
   
   async getTokenDetail(deviceId, walletId, symbol, tokenAddress) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/tokens/${symbol}/${tokenAddress}/detail`,
         {
           params: { device_id: deviceId }
@@ -631,7 +643,7 @@ export const api = {
         queryParams.append('to_date', params.to_date);
       }
 
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/tokens/${tokenAddress}/ohlcv/?${queryParams.toString()}`
       );
 
@@ -647,7 +659,7 @@ export const api = {
   // Solana Swap 相关接口
   async getSolanaSwapTokens(walletId, deviceId) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/swap/tokens/`,  // 添加末尾斜杠
         {
           params: {
@@ -663,7 +675,7 @@ export const api = {
 
   async getSolanaTokenPrices(walletId, deviceId, tokenAddresses) {
     try {
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/swap/prices/`,  // 添加末尾斜杠
         {
           params: {
@@ -684,7 +696,7 @@ export const api = {
   async getSwapQuote(walletId, params) {
     try {
       // 修改为 GET 请求，与实际接口匹配
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/swap/quote`,
         {
           params: {
@@ -717,7 +729,7 @@ export const api = {
         payment_password: params.payment_password
       };
 
-      const response = await instance.post(
+      const response = await axiosInstance.post(
         `/solana/wallets/${numericWalletId}/swap/execute/`,
         requestBody
       );
@@ -739,10 +751,10 @@ export const api = {
         throw new Error('Invalid wallet ID');
       }
 
-      // 修改 URL 格式，确保不会有重定向
-      const url = `/solana/wallets/${numericWalletId}/swap/status/${signature}`;
+      // 修改 URL 格式，添加末尾斜杠
+      const url = `/solana/wallets/${numericWalletId}/swap/status/${signature}/`;
 
-      const response = await instance.get(url, {
+      const response = await axiosInstance.get(url, {
         params: {
           device_id: deviceId
         }
@@ -759,49 +771,24 @@ export const api = {
   },
 
   // 添加获取Solana交换费用估算的函数
-  async getSolanaSwapEstimateFees(walletId, fromToken, toToken, amount) {
+  getSolanaSwapEstimateFees: async (walletId, fromToken, toToken, amount) => {
     try {
-      if (!walletId || !fromToken || !toToken || !amount) {
-        console.error('getSolanaSwapEstimateFees: Missing required parameters');
-        throw new Error('Missing required parameters for fee estimation');
-      }
-      
       const deviceId = await DeviceManager.getDeviceId();
-      const numericWalletId = Number(walletId);
+      const url = `/solana/wallets/${walletId}/swap/estimate_fees`;
       
-      if (isNaN(numericWalletId)) {
-        throw new Error('Invalid wallet ID');
-      }
-      
-      console.log('Fee estimation request parameters:', {
-        walletId: numericWalletId,
-        fromToken,
-        toToken,
-        amount,
-        deviceId
+      const response = await axiosInstance.get(url, {
+        params: {
+          device_id: deviceId,
+          from_token: fromToken,
+          to_token: toToken,
+          amount: amount
+        }
       });
       
-      const response = await instance.get(
-        `/solana/wallets/${numericWalletId}/swap/estimate_fees`,
-        {
-          params: {
-            device_id: deviceId,
-            from_token: fromToken,
-            to_token: toToken,
-            amount: amount
-          }
-        }
-      );
-      
-      console.log('Fee estimation API response:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Fee estimation API error:', error.response?.data || error.message || error);
-      return {
-        status: 'error',
-        message: error.response?.data?.message || error.message || 'Failed to estimate fees',
-        data: null
-      };
+      console.error('获取费用估算失败:', error);
+      throw error;
     }
   },
 
@@ -832,7 +819,7 @@ export const api = {
       // 确保 tokenAddresses 是数组
       const addresses = Array.isArray(tokenAddresses) ? tokenAddresses : [tokenAddresses];
 
-      const response = await instance.get(
+      const response = await axiosInstance.get(
         `/solana/wallets/${walletId}/swap/prices/`,  // 添加末尾斜杠
         {
           params: {

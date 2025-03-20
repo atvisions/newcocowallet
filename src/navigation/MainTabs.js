@@ -31,6 +31,8 @@ import TransactionFailedScreen from '../screens/wallet/TransactionFailedScreen';
 import HistoryScreen from '../screens/wallet/HistoryScreen';
 import ReceiveScreen from '../screens/wallet/ReceiveScreen';
 import TransactionDetailScreen from '../screens/wallet/TransactionDetailScreen';
+import PaymentTokenList from '../screens/swap/PaymentTokenList';
+import ReceivingTokenList from '../screens/swap/ReceivingTokenList';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -222,6 +224,8 @@ const MainStack = () => {
       <Stack.Screen name="History" component={HistoryScreen} />
       <Stack.Screen name="Receive" component={ReceiveScreen} />
       <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} />
+      <Stack.Screen name="PaymentTokenList" component={PaymentTokenList} />
+      <Stack.Screen name="ReceivingTokenList" component={ReceivingTokenList} />
     </Stack.Navigator>
   );
 };
