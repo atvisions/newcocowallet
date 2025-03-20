@@ -16,7 +16,7 @@ import { DeviceManager } from '../../utils/device';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from '../../components/Toast';
 
-const RecommendedTokensList = ({ onSelectToken, walletId, chain }) => {
+const RecommendedTokensList = ({ onSelectToken, walletId, chain, selectedToken }) => {
   const [recommendedTokens, setRecommendedTokens] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [flipAnimation] = useState(new Animated.Value(0));
@@ -36,27 +36,24 @@ const RecommendedTokensList = ({ onSelectToken, walletId, chain }) => {
       if (response?.status === 'success' && response.data && response.data.length > 0) {
         const allTokens = response.data.map(token => ({
           ...token,
-          // 将地址转换为正确的大小写格式
           token_address: convertToProperCase(token.token_address),
           address: convertToProperCase(token.token_address)
         }));
         
-        console.log('Available tokens:', allTokens.map(token => ({
-          symbol: token.symbol,
-          address: token.token_address,
-          price: token.price_usd
-        })));
+        // 过滤掉已选择的代币
+        const availableTokens = allTokens.filter(token => 
+          token.token_address !== selectedToken?.token_address
+        );
         
         let selectedTokens = [];
         
-        if (allTokens.length <= 3) {
-          selectedTokens = allTokens;
+        if (availableTokens.length <= 3) {
+          selectedTokens = availableTokens;
         } else {
-          const shuffledTokens = [...allTokens].sort(() => Math.random() - 0.5);
+          // 随机选择3个不重复的代币
+          const shuffledTokens = [...availableTokens].sort(() => Math.random() - 0.5);
           selectedTokens = shuffledTokens.slice(0, 3);
         }
-        
-        console.log('Selected tokens:', selectedTokens.map(token => token.symbol));
         
         setRecommendedTokens(selectedTokens);
         setCurrentPage(0);
@@ -67,10 +64,6 @@ const RecommendedTokensList = ({ onSelectToken, walletId, chain }) => {
       }
     } catch (error) {
       console.error('Failed to load recommended tokens:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data
-      });
       setRecommendedTokens([]);
     } finally {
       setIsLoading(false);
@@ -291,7 +284,7 @@ const RecommendedTokensList = ({ onSelectToken, walletId, chain }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>推荐代币</Text>
+        <Text style={styles.title}>AI Suggestions</Text>
         <TouchableOpacity 
           style={styles.refreshButton}
           onPress={loadRecommendedTokens}
@@ -303,25 +296,22 @@ const RecommendedTokensList = ({ onSelectToken, walletId, chain }) => {
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color="#1FC595" />
-          <Text style={styles.loadingText}>加载推荐中...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       ) : recommendedTokens.length > 0 ? (
         <View>
-          <FlatList
-            data={getCurrentPageTokens()}
-            renderItem={renderRecommendedToken}
-            keyExtractor={item => item.token_address || item.address || item.symbol}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
-            ItemSeparatorComponent={() => <View style={{ width: 8 }} />}
-            style={{ alignSelf: 'center' }}
-          />
+          <View style={styles.tokenListContainer}>
+            {getCurrentPageTokens().map((item, index) => (
+              <View key={item.token_address || item.address || item.symbol} style={styles.tokenItemWrapper}>
+                {renderRecommendedToken({ item, index })}
+              </View>
+            ))}
+          </View>
           {renderPagination()}
         </View>
       ) : (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>暂无推荐代币</Text>
+          <Text style={styles.emptyText}>No tokens available</Text>
         </View>
       )}
     </View>
@@ -332,50 +322,68 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: 'rgba(40, 42, 70, 0.8)',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    padding: 10,
+    paddingLeft: 0,
+    paddingRight: 0,
+    marginTop: 8,
+    width: '100%',
+    alignSelf: 'stretch',
+    marginLeft:16,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+    paddingHorizontal: 0,
+    position: 'relative',
+    height: 32,
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.5,
+    flex: 1,
   },
   refreshButton: {
-    padding: 8,
+    padding: 6,
     backgroundColor: 'rgba(31, 197, 149, 0.1)',
-    borderRadius: 20,
-    width: 36,
-    height: 36,
+    borderRadius: 16,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'absolute',
+    right: 0,
   },
-  listContent: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+  tokenListContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    width: '100%',
+    gap: 8,
+  },
+  tokenItemWrapper: {
+    flex: 1,
+    marginHorizontal: 0,
   },
   recommendedTokenItem: {
     backgroundColor: 'rgba(30, 32, 60, 0.8)',
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 0,
-    marginRight: 12,
-    width: 100,
-    height: 140,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 2,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
     borderWidth: 1,
     borderColor: 'rgba(31, 197, 149, 0.2)',
     overflow: 'hidden',
@@ -388,33 +396,34 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   logoContainer: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
     position: 'relative',
   },
   backupLogo: {
     position: 'absolute',
   },
   recommendedTokenLogo: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   recommendedTokenInfo: {
     alignItems: 'center',
+    paddingHorizontal: 4,
   },
   recommendedTokenSymbol: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     marginBottom: 2,
   },
   recommendedTokenName: {
     color: '#8E8E8E',
-    fontSize: 12,
+    fontSize: 11,
     textAlign: 'center',
     maxWidth: 80,
   },
@@ -441,7 +450,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 12,
+    height: 24,
   },
   paginationDots: {
     flexDirection: 'row',
@@ -470,8 +480,8 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    borderRadius: 16,
+    padding: 6,
+    borderRadius: 12,
   },
 });
 

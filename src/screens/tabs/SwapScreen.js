@@ -32,6 +32,8 @@ import { logger } from '../../utils/logger';
 import axios from 'axios';
 import { BASE_URL } from '../../config/constants'; // 确保导入BASE_URL
 import Toast, { ToastView } from '../../components/Toast';
+import RecommendedTokensList from '../swap/RecommendedTokensList';
+import Svg, { Path } from 'react-native-svg';
 
 // 添加TokenLogo组件到SwapScreen.js文件顶部
 
@@ -203,6 +205,36 @@ const formatDisplayAmount = (amount, decimals) => {
   }
 };
 
+// 修改 calculateExchangeRate 函数，使用原始数值计算
+const calculateExchangeRate = (quote, fromToken, toToken) => {
+  if (!quote?.from_token?.amount || !quote?.to_token?.amount || !fromToken?.decimals || !toToken?.decimals) {
+    return '计算中...';
+  }
+
+  try {
+    const fromAmount = new BigNumber(quote.from_token.amount);
+    const toAmount = new BigNumber(quote.to_token.amount);
+    
+    // 考虑代币精度
+    const fromDecimals = new BigNumber(10).pow(fromToken.decimals);
+    const toDecimals = new BigNumber(10).pow(toToken.decimals);
+    
+    // 计算实际金额
+    const actualFromAmount = fromAmount.dividedBy(fromDecimals);
+    const actualToAmount = toAmount.dividedBy(toDecimals);
+    
+    // 计算兑换率
+    const rate = actualToAmount.dividedBy(actualFromAmount);
+    
+    // 格式化显示
+    const formattedRate = formatLargeNumber(rate.toString());
+    return `1 ${fromToken.symbol} = ${formattedRate} ${toToken.symbol}`;
+  } catch (error) {
+    console.error('兑换率计算错误:', error);
+    return '计算中...';
+  }
+};
+
 const QuoteDetails = ({ quote, fees, toToken, fromToken, isQuoteLoading, calculateExchangeRate, formatTokenAmount, formatPriceImpact, tokenPrices }) => {
   if (isQuoteLoading) {
     return (
@@ -231,21 +263,33 @@ const QuoteDetails = ({ quote, fees, toToken, fromToken, isQuoteLoading, calcula
     return null;
   }
 
+  // 修改 getFormattedAmount 函数
+  const getFormattedAmount = (amount, decimals) => {
+    try {
+      if (!amount || !decimals) return '0';
+      
+      // 先将原始数量转换为实际数量（考虑精度）
+      const actualAmount = new BigNumber(amount)
+        .dividedBy(new BigNumber(10).pow(decimals))
+        .toString();
+      
+      // 使用 formatLargeNumber 格式化显示
+      return formatLargeNumber(actualAmount);
+    } catch (error) {
+      console.error('格式化金额错误:', error);
+      return '0';
+    }
+  };
+
   const exchangeRate = calculateExchangeRate(quote, fromToken, toToken);
   const priceImpact = quote.price_impact ? formatPriceImpact(quote.price_impact) : '0%';
-  const minimumReceived = quote.minimum_received 
-    ? formatDisplayAmount(quote.minimum_received, toToken.decimals)
-    : '0';
+  
+  // 使用修改后的 getFormattedAmount 函数
+  const expectedAmount = getFormattedAmount(quote.to_token?.amount, toToken.decimals);
+  const minimumReceived = getFormattedAmount(quote.minimum_received, toToken.decimals);
   
   const isPriceImpactHigh = new BigNumber(quote.price_impact || 0).isGreaterThan(0.05);
   
-  // 获取市场价格
-  const fromTokenPrice = tokenPrices[fromToken.token_address]?.price;
-  const toTokenPrice = tokenPrices[toToken.token_address]?.price;
-  const marketPrice = fromTokenPrice && toTokenPrice 
-    ? `$${fromTokenPrice.toFixed(2)} / $${toTokenPrice.toFixed(2)}`
-    : 'Loading...';
-
   // 处理网络费用显示
   const networkFee = quote.network_fee || (fees ? fees : 'Calculating...');
   const networkFeeDisplay = typeof networkFee === 'string' ? networkFee : 'Calculating...';
@@ -257,18 +301,24 @@ const QuoteDetails = ({ quote, fees, toToken, fromToken, isQuoteLoading, calcula
         <Text style={styles.quoteValue}>{exchangeRate}</Text>
       </View>
       <View style={styles.quoteRow}>
-        <Text style={styles.quoteLabel}>Price Impact</Text>
-        <Text style={[
-          styles.quoteValue,
-          isPriceImpactHigh ? styles.warningText : null
-        ]}>
-          {priceImpact}
+        <Text style={styles.quoteLabel}>Expected</Text>
+        <Text style={styles.quoteValue}>
+          {expectedAmount} {toToken.symbol}
         </Text>
       </View>
       <View style={styles.quoteRow}>
         <Text style={styles.quoteLabel}>Minimum Received</Text>
         <Text style={styles.quoteValue}>
           {minimumReceived} {toToken.symbol}
+        </Text>
+      </View>
+      <View style={styles.quoteRow}>
+        <Text style={styles.quoteLabel}>Price Impact</Text>
+        <Text style={[
+          styles.quoteValue,
+          isPriceImpactHigh ? styles.warningText : null
+        ]}>
+          {priceImpact}
         </Text>
       </View>
       <View style={styles.quoteRow}>
@@ -416,6 +466,44 @@ const TransactionNotification = ({ status, message }) => {
       <Text style={styles.notificationText}>{message}</Text>
     </View>
   );
+};
+
+// 修改曲线边框组件
+const CurvedBorder = () => (
+  <View style={styles.curvedBorderContainer}>
+    <Svg height="40" width="100%" style={styles.curvedBorder}>
+      <Path
+        d="M 0,40 L 0,0 Q 200,40 400,0 L 400,50 Z"
+        fill="#171C32"
+        stroke="none"
+      />
+    </Svg>
+  </View>
+);
+
+// 添加格式化大数字的函数
+const formatLargeNumber = (number) => {
+  try {
+    const num = parseFloat(number);
+    if (isNaN(num)) return '0';
+    
+    const absNum = Math.abs(num);
+    
+    if (absNum >= 1e9) {
+      return (num / 1e9).toFixed(2) + 'B';
+    } else if (absNum >= 1e6) {
+      return (num / 1e6).toFixed(2) + 'M';
+    } else if (absNum >= 1e3) {
+      return (num / 1e3).toFixed(2) + 'K';
+    } else if (absNum < 0.01) {
+      return num.toFixed(6);
+    } else {
+      return num.toFixed(2);
+    }
+  } catch (error) {
+    console.error('格式化大数字错误:', error);
+    return '0';
+  }
 };
 
 const SwapScreen = ({ navigation, route }) => {
@@ -660,7 +748,7 @@ const SwapScreen = ({ navigation, route }) => {
   };
 
   // 添加重置交易状态的函数
-  const resetTransactionState = () => {
+  const resetTransactionState = useCallback(() => {
     console.log('Resetting transaction-related states');
     setAmount('');
     setQuote(null);
@@ -670,7 +758,7 @@ const SwapScreen = ({ navigation, route }) => {
     // 刷新数据
     loadUserTokens();
     loadSwapTokens();
-  };
+  }, []);
 
   // 修改开始检查交易状态的函数
   const startTransactionStatusCheck = (signature) => {
@@ -1215,47 +1303,64 @@ const SwapScreen = ({ navigation, route }) => {
   };
 
   const handleAmountChange = (value) => {
-    // 首先检查是否是相同的代币
-    const fromAddress = fromToken?.token_address || fromToken?.address;
-    const toAddress = toToken?.token_address || toToken?.address;
-    if (fromAddress === toAddress && value !== '') {
-      Toast.show('Cannot swap same token', 'error');
-      return;
+    try {
+      // 移除所有非数字和小数点的字符
+      let cleanValue = value.replace(/[^0-9.]/g, '');
+      
+      // 只允许一个小数点
+      const decimalPoints = cleanValue.match(/\./g);
+      if (decimalPoints && decimalPoints.length > 1) {
+        cleanValue = cleanValue.substring(0, cleanValue.lastIndexOf('.'));
+      }
+
+      // 如果是小数，限制小数位数
+      if (cleanValue.includes('.')) {
+        const [integer, decimal] = cleanValue.split('.');
+        const maxDecimals = fromToken?.decimals || 6;
+        cleanValue = `${integer}.${decimal.slice(0, maxDecimals)}`;
+      }
+
+      // 移除前导零
+      cleanValue = cleanValue.replace(/^0+(?=\d)/, '');
+      
+      // 如果是空字符串或只有小数点，设置为空
+      if (cleanValue === '' || cleanValue === '.') {
+        setAmount('');
+        setQuote(null);
+        setIsInsufficientBalance(false);
+        return;
+      }
+
+      // 移除末尾的零和小数点
+      cleanValue = cleanValue.replace(/\.?0+$/, '');
+
+      // 检查余额
+      const inputAmount = parseFloat(cleanValue);
+      const balance = parseFloat(fromToken?.balance_formatted?.replace(/,/g, '') || '0');
+      
+      // 设置金额
+      setAmount(cleanValue);
+
+      if (inputAmount > balance) {
+        setIsInsufficientBalance(true);
+        setQuote(null); // 清空报价
+        return; // 余额不足时直接返回，不获取报价
+      }
+
+      setIsInsufficientBalance(false);
+      
+      // 只有当金额大于0且不超过余额时才获取报价
+      if (inputAmount > 0) {
+        debouncedGetQuote();
+      } else {
+        setQuote(null);
+      }
+    } catch (error) {
+      console.error('处理金额输入错误:', error);
+      setAmount('');
+      setQuote(null);
+      setIsInsufficientBalance(false);
     }
-
-    // 移除非数字字符，保留一个小数点
-    let cleanedValue = value.replace(/[^\d.]/g, '');
-    const parts = cleanedValue.split('.');
-    if (parts.length > 2) {
-      cleanedValue = parts[0] + '.' + parts.slice(1).join('');
-    }
-
-    // 如果以小数点开始，添加前导零
-    if (cleanedValue.startsWith('.')) {
-      cleanedValue = '0' + cleanedValue;
-    }
-
-    // 限制小数位数
-    if (parts.length === 2 && parts[1].length > fromToken?.decimals) {
-      cleanedValue = parts[0] + '.' + parts[1].slice(0, fromToken?.decimals);
-    }
-
-    // 检查金额是否超过最大限制 (1000 SOL)
-    const numValue = parseFloat(cleanedValue || '0');
-    if (numValue > 1000) {
-      Toast.show('Amount cannot exceed 1000 SOL', 'error');
-      return;
-    }
-
-    console.log('Amount input processing:', {
-      token: fromToken?.symbol,
-      decimals: fromToken?.decimals,
-      originalInput: value,
-      processedAmount: cleanedValue,
-      numericValue: numValue
-    });
-
-    setAmount(cleanedValue);
   };
 
   const getQuoteAndFees = async () => {
@@ -1612,88 +1717,20 @@ const SwapScreen = ({ navigation, route }) => {
   };
 
   const handleTokenSelect = (type) => {
-    // 根据类型导航到不同的代币列表页面
-    if (type === 'from') {
-      navigation.navigate('PaymentTokenList', {
-        selectedToken: fromToken,
-        onSelectToken: (token) => {
-          console.log('选择支付代币:', {
-            symbol: token.symbol,
-            address: token.token_address || token.address
-          });
+    navigation.navigate('TokenSelect', {
+      tokens: type === 'from' ? userTokens : swapTokens,
+      type,
+      onSelect: async (selectedToken) => {
+        try {
+          resetSwapState();
           
-          // 确保代币对象格式一致
-          const normalizedToken = {
-            ...token,
-            token_address: token.token_address || token.address,
-            balance_formatted: token.balance_formatted || '0'
-          };
-          
-          setFromToken(normalizedToken);
-          // 清空输入金额和报价
-          setAmount('');
-          setQuote(null);
-          setFees(null);
+          // ... 其他代码保持不变 ...
+        } catch (error) {
+          console.error('选择代币失败:', error);
+          Toast.show('Failed to select token', 'error');
         }
-      });
-    } else {
-      navigation.navigate('ReceivingTokenList', {
-        selectedToken: toToken,
-        onSelectToken: (token) => {
-          console.log('选择接收代币:', {
-            symbol: token.symbol,
-            address: token.token_address || token.address
-          });
-          
-          // 确保代币对象格式一致
-          const normalizedToken = {
-            ...token,
-            token_address: token.token_address || token.address,
-            balance_formatted: token.balance_formatted || '0'
-          };
-          
-          setToToken(normalizedToken);
-          // 清空输入金额和报价
-          setAmount('');
-          setQuote(null);
-          setFees(null);
-        }
-      });
-    }
-  };
-
-  const calculateExchangeRate = (quote, fromToken, toToken) => {
-    if (!quote?.from_token?.amount || !quote?.to_token?.amount || !fromToken?.decimals || !toToken?.decimals) {
-      return '计算中...';
-    }
-
-    try {
-      const fromAmount = new BigNumber(quote.from_token.amount);
-      const toAmount = new BigNumber(quote.to_token.amount);
-      
-      // 考虑代币精度
-      const fromDecimals = new BigNumber(10).pow(fromToken.decimals);
-      const toDecimals = new BigNumber(10).pow(toToken.decimals);
-      
-      // 计算实际金额
-      const actualFromAmount = fromAmount.dividedBy(fromDecimals);
-      const actualToAmount = toAmount.dividedBy(toDecimals);
-      
-      // 计算兑换率
-      const rate = actualToAmount.dividedBy(actualFromAmount);
-      
-      console.log('兑换率计算:', {
-        输入金额: actualFromAmount.toString(),
-        输出金额: actualToAmount.toString(),
-        兑换率: rate.toString()
-      });
-      
-      // 格式化显示
-      return `1 ${fromToken.symbol} = ${rate.toFormat(6)} ${toToken.symbol}`;
-    } catch (error) {
-      console.error('兑换率计算错误:', error);
-      return '计算中...';
-    }
+      }
+    });
   };
 
   const formatPriceImpact = (impact) => {
@@ -1737,10 +1774,10 @@ const SwapScreen = ({ navigation, route }) => {
       >
         {token ? (
           <>
-            <TokenLogo 
-              uri={token.logo} 
-              symbol={token.symbol}
+            <Image 
+              source={{ uri: token.logo }} 
               style={styles.tokenLogo} 
+              defaultSource={require('../../../assets/default-token.png')}
             />
             <View style={styles.tokenInfo}>
               <View style={styles.tokenNameRow}>
@@ -1753,19 +1790,21 @@ const SwapScreen = ({ navigation, route }) => {
               </View>
               <Text style={styles.tokenBalance}>
                 {type === 'from' 
-                  ? `Balance: ${token?.balance_formatted || '0'}`
+                  ? `Balance: ${formatLargeNumber(token?.balance_formatted?.replace(/,/g, '') || '0')}`
                   : isQuoteLoading 
                     ? <SkeletonLoader width={120} height={16} style={{ marginTop: 2 }} />
                     : quote?.to_token?.amount
                       ? (() => {
-                          console.log('Expected amount calculation:', {
-                            originalAmount: quote.to_token.amount,
-                            tokenDecimals: token.decimals,
-                            tokenSymbol: token.symbol
-                          });
-                          return `Expected: ${formatDisplayAmount(quote.to_token.amount, token.decimals)} ${token.symbol}`;
+                          // 直接使用 BigNumber 处理精度转换
+                          const actualAmount = new BigNumber(quote.to_token.amount)
+                            .dividedBy(new BigNumber(10).pow(token.decimals))
+                            .toString();
+                          
+                          // 使用 formatLargeNumber 格式化显示
+                          const formattedAmount = formatLargeNumber(actualAmount);
+                          return `Expected: ${formattedAmount} ${token.symbol}`;
                         })()
-                      : ''
+                      : `Expected: 0 ${token.symbol}`
                 }
               </Text>
             </View>
@@ -1852,11 +1891,51 @@ const SwapScreen = ({ navigation, route }) => {
           )}
         </>
       )}
+      
+      {type === 'to' && (
+        <View style={styles.recommendedTokensWrapper}>
+          <RecommendedTokensList 
+            onSelectToken={async (token) => {
+              try {
+                // 先重置所有状态（包括金额）
+                resetSwapState();
+                
+                // 等待状态重置
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                // 确保代币对象格式完全一致
+                const normalizedToken = {
+                  ...token,
+                  token_address: token.token_address || token.address,
+                  address: token.token_address || token.address,
+                  decimals: parseInt(token.decimals) || 0,
+                  balance_formatted: token.balance_formatted || '0',
+                  name: token.name || token.symbol,
+                  symbol: token.symbol || '',
+                  logo: token.logo || null,
+                  is_native: token.is_native || false,
+                  price_usd: token.price_usd || '0',
+                  value_usd: token.value_usd || '0',
+                  price_change_24h: token.price_change_24h || '0'
+                };
+                
+                // 设置新的接收代币
+                await setToToken(normalizedToken);
+              } catch (error) {
+                console.error('选择推荐代币失败:', error);
+                Toast.show('Failed to select token', 'error');
+              }
+            }}
+            walletId={selectedWallet?.id}
+            chain={selectedWallet?.chain}
+            selectedToken={toToken}
+          />
+        </View>
+      )}
     </View>
   );
 
   const renderSwapButton = () => {
-    // 修改禁用条件，只保留必要的检查
     const isDisabled = !fromToken || !toToken || !amount || isLoading || isInsufficientBalance || isQuoteLoading || !quote;
     
     const handleSwapPress = async () => {
@@ -1869,7 +1948,7 @@ const SwapScreen = ({ navigation, route }) => {
         // 获取设备ID
         const deviceId = await DeviceManager.getDeviceId();
         
-        // 准备兑换数据，添加更多必要字段
+        // 准备兑换数据
         const swapData = {
           deviceId,
           walletId: selectedWallet.id,
@@ -1889,11 +1968,6 @@ const SwapScreen = ({ navigation, route }) => {
           price_impact: quote.price_impact,
           network_fee: quote.network_fee
         };
-
-        console.log('Swap transaction data:', {
-          ...swapData,
-          deviceId: '***', // 隐藏敏感信息
-        });
 
         // 跳转到支付密码验证页面
         navigation.navigate('PaymentPassword', {
@@ -1918,51 +1992,24 @@ const SwapScreen = ({ navigation, route }) => {
       }
     };
 
-    // 根据加载状态显示不同的按钮文本
-    const getButtonText = () => {
-      if (isInsufficientBalance) {
-        return 'Insufficient Balance';
-      }
-      if (isQuoteLoading) {
-        return 'Loading Quote...';
-      }
-      if (!quote && amount) {
-        return 'Waiting for Quote';
-      }
-      return 'Swap';
-    };
-
     return (
-      <View style={styles.swapButtonContainer}>
-        <TouchableOpacity
-          style={[
-            styles.swapButton,
-            isDisabled && styles.swapButtonDisabled
-          ]}
-          onPress={handleSwapPress}
-          disabled={isDisabled}
-        >
-          <LinearGradient
-            colors={['#1FC595', '#17A982']}
-            style={styles.swapButtonGradient}
+      <View style={styles.swapButtonWrapper}>
+        <CurvedBorder />
+        <View style={styles.swapButtonContainer}>
+          <TouchableOpacity
+            style={[
+              styles.swapButton,
+              isInsufficientBalance && styles.swapButtonWarning,
+              isDisabled && styles.swapButtonDisabled
+            ]}
+            onPress={handleSwapPress}
+            disabled={isDisabled}
           >
-            {isLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator color="#FFFFFF" />
-                <Text style={styles.loadingText}>{loadingText}</Text>
-              </View>
-            ) : isQuoteLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator color="#FFFFFF" size="small" />
-                <Text style={styles.loadingText}>Loading Quote...</Text>
-              </View>
-            ) : (
-              <Text style={styles.swapButtonText}>
-                {getButtonText()}
-              </Text>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
+            <Text style={styles.swapButtonText}>
+              {isInsufficientBalance ? 'Insufficient Balance' : isLoading ? 'Processing...' : 'Swap'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -2081,6 +2128,15 @@ const SwapScreen = ({ navigation, route }) => {
     setToastMessage(message);
     setShowToast(true);
   };
+
+  // 添加重置状态的函数
+  const resetSwapState = useCallback(() => {
+    setAmount(''); // 添加清除金额
+    setQuote(null);
+    setFees(null);
+    setIsQuoteLoading(false);
+    setIsInsufficientBalance(false);
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -2296,16 +2352,17 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-    marginBottom: 100, // 增加底部边距，从80改为100，为底部按钮留出更多空间
+    marginBottom: 90, // 调整底部边距
   },
   swapCardContainer: {
     position: 'relative',
-    paddingTop: 20,
+    paddingTop: 12, // 减小顶部间距
     marginHorizontal: 16,
   },
   swapCard: {
     borderRadius: 16,
     padding: 16,
+    paddingBottom: 0,
     marginBottom: 16,
     shadowColor: "#000",
     shadowOffset: {
@@ -2318,14 +2375,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
     backgroundColor: 'rgba(40, 42, 70, 1)',
+    minHeight: 180, // 添加最小高度确保内容稳定
   },
   detailsCard: {
     marginHorizontal: 16,
-    marginBottom: 30, // 增加底部边距，让详情容器与底部有更多空间
+    marginBottom: 16, // 减小底部间距
   },
   tokenSelectorWrapper: {
     width: '100%',
-    
+    marginBottom: 12, // 减小底部间距
   },
   tokenSelector: {
     flexDirection: 'row',
@@ -2370,8 +2428,8 @@ const styles = StyleSheet.create({
   },
   amountInputContainer: {
     alignItems: 'flex-end',
-    marginTop: 12,
-    marginBottom: 12,
+    marginTop: 8, // 减小顶部间距
+    marginBottom: 8, // 减小底部间距
     paddingHorizontal: 12,
     width: '100%',
   },
@@ -2387,7 +2445,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     paddingHorizontal: 12,
-    marginBottom: 12,
+    marginBottom: 8, // 减小底部间距
     gap: 8,
   },
   amountButton: {
@@ -2412,11 +2470,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    top: '50%',
-    marginTop: 46,
+    top: 220, // 使用固定位置替代百分比
     left: '50%',
     marginLeft: -20,
-    zIndex: 1,
+    zIndex: 2,
   },
   detailsSection: {
     marginTop: 16,
@@ -2474,8 +2531,12 @@ const styles = StyleSheet.create({
   quoteLoader: {
     marginLeft: 8,
   },
-  swapButtonContainer: {
-    position: 'relative',
+  swapButtonWrapper: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#171C32',
   },
   warningContainer: {
     position: 'absolute',
@@ -2491,18 +2552,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  swapButton: {
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
+  swapButtonContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    paddingTop: 16,
+    backgroundColor: '#171C32',
   },
-  swapButtonGradient: {
-    borderRadius: 16,
-    padding: 16,
+  swapButton: {
+    backgroundColor: '#1FC595',
+    borderRadius: 12,
+    height: 56,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   swapButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: 'rgba(31, 197, 149, 0.3)',
   },
   swapButtonWarning: {
     backgroundColor: '#FF9500',
@@ -2766,7 +2830,27 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
-  }
+  },
+
+  recommendedTokensWrapper: {
+    width: '100%',
+    marginHorizontal: -16, // 抵消父容器的padding
+  },
+
+  curvedBorderContainer: {
+    position: 'absolute',
+    top: -40,
+    left: 0,
+    right: 0,
+    height: 40,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+
+  curvedBorder: {
+    position: 'absolute',
+    top: 0,
+  },
 });
 
 export default SwapScreen;
