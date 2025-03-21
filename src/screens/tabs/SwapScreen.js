@@ -546,9 +546,88 @@ const SwapScreen = ({ navigation, route }) => {
   // 在组件顶部添加强制刷新状态
   const [forceUpdate, setForceUpdate] = useState(false);
 
-  // 使用 useFocusEffect 监听页面焦点
+  // 添加价格缓存
+  const priceCache = useRef(new Map());
+
+  // 修改代币价格请求
+  useEffect(() => {
+    // 只在屏幕获得焦点时才请求价格
+    if (!isScreenFocused || !fromToken || !toToken || !selectedWallet) return;
+    
+    const fetchTokenPrices = async () => {
+      try {
+        // 生成缓存键
+        const cacheKey = `${fromToken.token_address},${toToken.token_address}`;
+        const cachedData = priceCache.current.get(cacheKey);
+        const CACHE_TIMEOUT = 60000; // 1分钟缓存
+        
+        // 如果缓存存在且未过期，使用缓存数据
+        if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TIMEOUT)) {
+          console.log('使用缓存的价格数据:', cacheKey);
+          setTokenPrices(cachedData.data);
+          return;
+        }
+        
+        const deviceId = await DeviceManager.getDeviceId();
+        const tokenAddresses = [fromToken.token_address, toToken.token_address];
+        
+        // 确保使用数字类型的钱包ID
+        const numericWalletId = Number(selectedWallet.id);
+        
+        console.log('获取代币价格:', {
+          钱包ID: numericWalletId,
+          设备ID: deviceId,
+          代币地址: tokenAddresses.join(',')
+        });
+        
+        const response = await api.getSolanaTokenPrices(
+          numericWalletId,
+          deviceId,
+          tokenAddresses
+        );
+        
+        if (response.status === 'success' && response.data?.prices) {
+          console.log('代币价格数据:', response.data.prices);
+          setTokenPrices(response.data.prices);
+          
+          // 更新缓存
+          priceCache.current.set(cacheKey, {
+            data: response.data.prices,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        console.error('获取代币价格失败:', error);
+      }
+    };
+
+    // 立即执行一次
+    fetchTokenPrices();
+    
+    // 设置定时器，每60秒刷新一次价格
+    const priceInterval = setInterval(fetchTokenPrices, 60000);
+    
+    return () => {
+      console.log('清除价格请求定时器');
+      clearInterval(priceInterval);
+    };
+  }, [isScreenFocused, fromToken?.token_address, toToken?.token_address, selectedWallet?.id]);
+
+  // 修改防抖处理的报价请求
+  const debouncedGetQuote = React.useCallback(
+    debounce(async () => {
+      if (!isScreenFocused || !fromToken || !toToken || !amount) {
+        return;
+      }
+      await getQuoteAndFees();
+    }, 2000), // 增加防抖时间到2秒
+    [fromToken?.token_address, toToken?.token_address, amount, isScreenFocused]
+  );
+
+  // 修改 useFocusEffect 钩子，确保正确设置 isScreenFocused
   useFocusEffect(
     React.useCallback(() => {
+      console.log('Swap 屏幕获得焦点');
       setIsScreenFocused(true);
       StatusBar.setBarStyle('light-content');
       StatusBar.setBackgroundColor('transparent');
@@ -572,10 +651,153 @@ const SwapScreen = ({ navigation, route }) => {
         }
         // 停止交易状态检查
         stopTransactionStatusCheck();
-        // 不再重置 fromToken 和 toToken
       };
     }, [])
   );
+
+  // 修改轮询交易状态的函数
+  const pollTransactionStatus = async (signature) => {
+    // 如果已经在轮询中，直接返回
+    if (isPolling.current) {
+      console.log('已经在轮询中，跳过新的轮询请求');
+      return;
+    }
+    
+    // 设置轮询标志
+    isPolling.current = true;
+    
+    Toast.show('Processing Transaction...', 'pending');
+    
+    let attempts = 0;
+    const maxAttempts = 12; // 从30减少到12
+    
+    while (attempts < maxAttempts) {
+      try {
+        const deviceId = await DeviceManager.getDeviceId();
+        const response = await api.getSolanaSwapStatus(
+          selectedWallet.id, 
+          signature,
+          deviceId
+        );
+        
+        if (response.status === 'success' && response.data) {
+          if (response.data.status === 'confirmed') {
+            await handleTransactionSuccess(signature);
+            isPolling.current = false; // 重置轮询标志
+            return;
+          } 
+          else if (response.data.status === 'failed') {
+            handleTransactionFailure();
+            isPolling.current = false; // 重置轮询标志
+            return;
+          }
+        }
+        
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 从2秒增加到5秒
+      } catch (error) {
+        console.error('Status check failed:', error);
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 从2秒增加到5秒
+      }
+    }
+    
+    Toast.show('Transaction Status Check Timeout', 'error');
+    isPolling.current = false; // 重置轮询标志
+  };
+
+  // 修改开始检查交易状态的函数
+  const startTransactionStatusCheck = (signature) => {
+    // 如果已经在轮询中，直接返回
+    if (isPolling.current) {
+      console.log('已经在轮询中，跳过新的轮询请求');
+      return;
+    }
+    
+    // 设置轮询标志
+    isPolling.current = true;
+    
+    // 先清除可能存在的旧定时器
+    stopTransactionStatusCheck();
+    
+    console.log('Starting transaction status check:', signature);
+    
+    // 重置计数器
+    maxCheckAttemptsRef.current = 0;
+    
+    // 设置交易状态为加载中
+    transactionStatusRef.current = 'loading';
+    
+    // 立即检查一次
+    checkTransactionStatus(signature);
+    
+    // 设置新的定时器，每5秒检查一次（从3秒增加到5秒）
+    const intervalId = setInterval(() => {
+      // 在每次检查前先获取当前状态
+      const currentStatus = transactionStatusRef.current;
+      
+      // 增加计数器
+      maxCheckAttemptsRef.current += 1;
+      
+      // 如果已经达到最大检查次数（6次，约30秒）
+      if (maxCheckAttemptsRef.current >= 6) {
+        console.log('Maximum check attempts reached, stopping check');
+        
+        // 如果状态仍然是 loading，设置为未知状态
+        if (currentStatus === 'loading') {
+          console.log('Transaction status still loading, setting to unknown state');
+          transactionStatusRef.current = 'info';
+          // 显示信息消息
+          showTransactionMessage('info', 'Transaction status query timeout, please check transaction history later');
+          stopTransactionStatusCheck();
+          // 重置交易相关状态
+          resetTransactionState();
+        }
+        
+        // 重置轮询标志
+        isPolling.current = false;
+        return;
+      }
+      
+      // 如果已经是终态，停止检查
+      if (currentStatus === 'success' || currentStatus === 'failed' || currentStatus === 'info') {
+        console.log('Transaction already in terminal state, stopping scheduled check:', currentStatus);
+        stopTransactionStatusCheck();
+        // 重置轮询标志
+        isPolling.current = false;
+        return;
+      }
+      
+      console.log('Scheduled transaction status check:', signature, 'Current status:', currentStatus, 'Check attempts:', maxCheckAttemptsRef.current);
+      checkTransactionStatus(signature);
+    }, 5000); // 从3秒增加到5秒
+    
+    // 保存定时器ID
+    statusCheckTimerRef.current = intervalId;
+  };
+
+  // 修改停止检查交易状态的函数
+  const stopTransactionStatusCheck = () => {
+    console.log('Stopping transaction status check');
+    if (statusCheckTimerRef.current) {
+      clearInterval(statusCheckTimerRef.current);
+      statusCheckTimerRef.current = null;
+    }
+    // 重置轮询标志
+    isPolling.current = false;
+  };
+
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      console.log('组件卸载，清理资源');
+      stopTransactionStatusCheck();
+      transactionStatusRef.current = 'idle';
+    };
+  }, []);
+
+  // 创建一个 ref 来存储定时器
+  const quoteRefreshInterval = React.useRef(null);
 
   // 处理从支付密码页面返回的交易信息
   useEffect(() => {
@@ -760,158 +982,7 @@ const SwapScreen = ({ navigation, route }) => {
     loadSwapTokens();
   }, []);
 
-  // 修改开始检查交易状态的函数
-  const startTransactionStatusCheck = (signature) => {
-    // 先清除可能存在的旧定时器
-    stopTransactionStatusCheck();
-    
-    console.log('Starting transaction status check:', signature);
-    
-    // 重置计数器
-    maxCheckAttemptsRef.current = 0;
-    
-    // 设置交易状态为加载中，但不显示状态栏
-    transactionStatusRef.current = 'loading';
-    
-    // 立即检查一次
-    checkTransactionStatus(signature);
-    
-    // 设置新的定时器，每3秒检查一次
-    const intervalId = setInterval(() => {
-      // 在每次检查前先获取当前状态
-      const currentStatus = transactionStatusRef.current;
-      
-      // 增加计数器
-      maxCheckAttemptsRef.current += 1;
-      
-      // 如果已经达到最大检查次数（10次，约30秒）
-      if (maxCheckAttemptsRef.current >= 10) {
-        console.log('Maximum check attempts reached, stopping check');
-        
-        // 如果状态仍然是 loading，设置为未知状态
-        if (currentStatus === 'loading') {
-          console.log('Transaction status still loading, setting to unknown state');
-          transactionStatusRef.current = 'info';
-          // 显示信息消息
-          showTransactionMessage('info', 'Transaction status query timeout, please check transaction history later');
-          stopTransactionStatusCheck();
-          // 重置交易相关状态
-          resetTransactionState();
-        }
-        
-      return;
-    }
-    
-      // 如果已经是终态，停止检查
-      if (currentStatus === 'success' || currentStatus === 'failed' || currentStatus === 'info') {
-        console.log('Transaction already in terminal state, stopping scheduled check:', currentStatus);
-        stopTransactionStatusCheck();
-        return;
-      }
-      
-      console.log('Scheduled transaction status check:', signature, 'Current status:', currentStatus, 'Check attempts:', maxCheckAttemptsRef.current);
-      checkTransactionStatus(signature);
-      }, 3000);
-    
-    // 保存定时器ID
-    statusCheckTimerRef.current = intervalId;
-  };
-
-  // 修改停止检查交易状态的函数
-  const stopTransactionStatusCheck = () => {
-    console.log('Stopping transaction status check');
-    if (statusCheckTimerRef.current) {
-      clearInterval(statusCheckTimerRef.current);
-      statusCheckTimerRef.current = null;
-    }
-  };
-
-  // 组件卸载时清理
-  useEffect(() => {
-    return () => {
-      console.log('组件卸载，清理资源');
-      stopTransactionStatusCheck();
-      transactionStatusRef.current = 'idle';
-    };
-  }, []);
-
-  // 创建一个 ref 来存储定时器
-  const quoteRefreshInterval = React.useRef(null);
-
-  // 防抖处理的报价请求
-  const debouncedGetQuote = React.useCallback(
-    debounce(async () => {
-      if (!isScreenFocused || !fromToken || !toToken || !amount) {
-        return;
-      }
-      await getQuoteAndFees();
-    }, 1000),
-    [fromToken, toToken, amount, isScreenFocused]
-  );
-
-  // 修改报价刷新机制
-  useEffect(() => {
-    // 只有在有金额输入且金额不为0时才请求报价
-    if (isScreenFocused && amount && amount !== '0' && fromToken && toToken) {
-      // 检查是否是相同的代币
-      const fromAddress = fromToken?.token_address || fromToken?.address;
-      const toAddress = toToken?.token_address || toToken?.address;
-      if (fromAddress !== toAddress) {  // 只有不同代币才请求报价
-        debouncedGetQuote();
-      }
-    } else {
-      // 如果没有输入金额或金额为0，清空报价
-      setQuote(null);
-      setFees(null);
-    }
-  }, [amount, slippage]); // 只监听金额和滑点的变化
-
-  useEffect(() => {
-    loadUserTokens();
-    loadSwapTokens();
-  }, [selectedWallet]);
-
   // 添加新的 useEffect 来获取代币价格
-  useEffect(() => {
-    const fetchTokenPrices = async () => {
-      if (!fromToken || !toToken || !selectedWallet) return;
-      
-      try {
-        const deviceId = await DeviceManager.getDeviceId();
-        const tokenAddresses = [fromToken.token_address, toToken.token_address];
-        
-        // 确保使用数字类型的钱包ID
-        const numericWalletId = Number(selectedWallet.id);
-        
-        console.log('获取代币价格:', {
-          钱包ID: numericWalletId,
-          设备ID: deviceId,
-          代币地址: tokenAddresses.join(',')
-        });
-        
-        const response = await api.getSolanaTokenPrices(
-          numericWalletId,  // 使用数字类型的钱包ID
-          deviceId,
-          tokenAddresses
-        );
-        
-        if (response.status === 'success' && response.data?.prices) {
-          console.log('代币价格数据:', response.data.prices);
-          setTokenPrices(response.data.prices);
-        }
-      } catch (error) {
-        console.error('获取代币价格失败:', error);
-      }
-    };
-
-    fetchTokenPrices();
-    
-    // 设置定时器，每60秒刷新一次价格
-    const priceInterval = setInterval(fetchTokenPrices, 60000);
-    
-    return () => clearInterval(priceInterval);
-  }, [fromToken?.token_address, toToken?.token_address, selectedWallet]);
-
   useEffect(() => {
     // Check if amount exceeds balance
     if (fromToken && amount) {
@@ -1044,45 +1115,6 @@ const SwapScreen = ({ navigation, route }) => {
   }, [selectedWallet?.id, fromToken?.token_address, toToken?.token_address]);
 
   // 针对pay token更新问题的简化方案
-
-  // 修改轮询交易状态的函数
-  const pollTransactionStatus = async (signature) => {
-    Toast.show('Processing Transaction...', 'pending');
-    
-    let attempts = 0;
-    const maxAttempts = 30;
-    
-    while (attempts < maxAttempts) {
-      try {
-        const deviceId = await DeviceManager.getDeviceId();
-        const response = await api.getSolanaSwapStatus(
-          selectedWallet.id, 
-          signature,
-          deviceId
-        );
-        
-        if (response.status === 'success' && response.data) {
-          if (response.data.status === 'confirmed') {
-            await handleTransactionSuccess(signature);
-            return;
-          } 
-          else if (response.data.status === 'failed') {
-            handleTransactionFailure();
-            return;
-          }
-        }
-        
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        console.error('Status check failed:', error);
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
-    
-    Toast.show('Transaction Status Check Timeout', 'error');
-  };
 
   // 新增：专门用于更新token余额的函数
   const updateTokenBalance = async () => {
@@ -1717,20 +1749,30 @@ const SwapScreen = ({ navigation, route }) => {
   };
 
   const handleTokenSelect = (type) => {
-    navigation.navigate('TokenSelect', {
-      tokens: type === 'from' ? userTokens : swapTokens,
-      type,
-      onSelect: async (selectedToken) => {
-        try {
-          resetSwapState();
-          
-          // ... 其他代码保持不变 ...
-        } catch (error) {
-          console.error('选择代币失败:', error);
-          Toast.show('Failed to select token', 'error');
+    // 修改回正确的导航目标
+    if (type === 'from') {
+      navigation.navigate('PaymentTokenList', {
+        selectedToken: fromToken,
+        onSelectToken: (token) => {
+          console.log('选择支付代币:', token);
+          setFromToken(token);
+          setAmount('');
+          setQuote(null);
+          setFees(null);
         }
-      }
-    });
+      });
+    } else {
+      navigation.navigate('ReceivingTokenList', {  // 改回 ReceivingTokenList
+        selectedToken: toToken,
+        onSelectToken: (token) => {
+          console.log('选择接收代币:', token);
+          // 先重置所有状态
+          resetSwapState();
+          // 设置新的代币
+          setToToken(token);
+        }
+      });
+    }
   };
 
   const formatPriceImpact = (impact) => {
@@ -2137,6 +2179,32 @@ const SwapScreen = ({ navigation, route }) => {
     setIsQuoteLoading(false);
     setIsInsufficientBalance(false);
   }, []);
+
+  // 修改报价刷新机制
+  useEffect(() => {
+    // 只有在有金额输入且金额不为0时才请求报价
+    if (isScreenFocused && amount && amount !== '0' && fromToken && toToken) {
+      // 检查是否是相同的代币
+      const fromAddress = fromToken?.token_address || fromToken?.address;
+      const toAddress = toToken?.token_address || toToken?.address;
+      if (fromAddress !== toAddress) {  // 只有不同代币才请求报价
+        console.log('金额或滑点变化，请求报价:', { amount, slippage });
+        debouncedGetQuote();
+      }
+    } else {
+      // 如果没有输入金额或金额为0，清空报价
+      setQuote(null);
+      setFees(null);
+    }
+  }, [amount, slippage, debouncedGetQuote]); // 监听金额、滑点和debouncedGetQuote的变化
+
+  // 确保在组件挂载时加载代币列表
+  useEffect(() => {
+    if (selectedWallet) {
+      loadUserTokens();
+      loadSwapTokens();
+    }
+  }, [selectedWallet]);
 
   return (
     <SafeAreaView style={styles.container}>
