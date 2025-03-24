@@ -3,7 +3,8 @@ import { Platform } from 'react-native';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
-const DEVICE_ID_KEY = 'deviceId';
+const DEVICE_ID_KEY = '@coco_wallet_device_id';
+const DEVICE_ID_BACKUP_KEY = '@device_id_backup';
 const WALLET_CREATED_KEY = '@coco_wallet_created';
 
 export const DeviceManager = {
@@ -17,25 +18,36 @@ export const DeviceManager = {
         return deviceId;
       }
       
+      const backupId = await AsyncStorage.getItem(DEVICE_ID_BACKUP_KEY);
+      const legacyId = await AsyncStorage.getItem('deviceId');
+      
+      if (backupId || legacyId) {
+        const recoveredId = backupId || legacyId;
+        console.log('【COCO_DEVICE】从备用/旧键名恢复设备ID:', recoveredId);
+        
+        await AsyncStorage.setItem(DEVICE_ID_KEY, recoveredId);
+        await AsyncStorage.setItem(DEVICE_ID_BACKUP_KEY, recoveredId);
+        await AsyncStorage.setItem('deviceId', recoveredId);
+        
+        return recoveredId;
+      }
+      
       const newDeviceId = `android_${uuidv4()}`;
       console.log('【COCO_DEVICE】生成新设备ID:', newDeviceId);
       
       await AsyncStorage.setItem(DEVICE_ID_KEY, newDeviceId);
+      await AsyncStorage.setItem(DEVICE_ID_BACKUP_KEY, newDeviceId);
+      await AsyncStorage.setItem('deviceId', newDeviceId);
       
       const verifyId = await AsyncStorage.getItem(DEVICE_ID_KEY);
       console.log('【COCO_DEVICE】验证存储的设备ID:', verifyId);
-      
-      if (!verifyId) {
-        console.error('【COCO_DEVICE】设备ID存储失败，将尝试备用存储');
-        await AsyncStorage.setItem('@device_id_backup', newDeviceId);
-      }
       
       return newDeviceId;
     } catch (error) {
       console.error('【COCO_DEVICE】获取设备ID失败:', error);
       
       try {
-        const backupId = await AsyncStorage.getItem('@device_id_backup');
+        const backupId = await AsyncStorage.getItem(DEVICE_ID_BACKUP_KEY);
         if (backupId) {
           console.log('【COCO_DEVICE】从备用存储恢复设备ID:', backupId);
           return backupId;
@@ -57,7 +69,8 @@ export const DeviceManager = {
       console.log('【COCO_DEVICE】手动保存设备ID:', deviceId);
       
       await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
-      await AsyncStorage.setItem('@device_id_backup', deviceId);
+      await AsyncStorage.setItem(DEVICE_ID_BACKUP_KEY, deviceId);
+      await AsyncStorage.setItem('deviceId', deviceId);
       
       const savedId = await AsyncStorage.getItem(DEVICE_ID_KEY);
       console.log('【COCO_DEVICE】验证手动保存的ID:', savedId);
@@ -71,28 +84,38 @@ export const DeviceManager = {
 
   async ensureDeviceId() {
     try {
-      const mainId = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      const keyNames = [
+        DEVICE_ID_KEY,
+        DEVICE_ID_BACKUP_KEY,
+        'deviceId'
+      ];
       
-      const backupId = await AsyncStorage.getItem('@device_id_backup');
+      let effectiveId = null;
+      let foundKeyName = null;
       
-      const oldId = await AsyncStorage.getItem('@coco_wallet_device_id');
+      for (const key of keyNames) {
+        const id = await AsyncStorage.getItem(key);
+        if (id) {
+          effectiveId = id;
+          foundKeyName = key;
+          break;
+        }
+      }
       
-      console.log('【COCO_DEVICE】ID检查 - 主要:', mainId, '备用:', backupId, '旧格式:', oldId);
-      
-      const effectiveId = mainId || backupId || oldId;
+      console.log('【COCO_DEVICE】ID检查结果:', 
+        effectiveId ? `在键 "${foundKeyName}" 找到ID: ${effectiveId}` : '未找到有效ID');
       
       if (effectiveId) {
-        if (!mainId) {
-          await AsyncStorage.setItem(DEVICE_ID_KEY, effectiveId);
-          console.log('【COCO_DEVICE】从其他位置恢复ID并保存:', effectiveId);
+        for (const key of keyNames) {
+          await AsyncStorage.setItem(key, effectiveId);
         }
         return effectiveId;
       }
       
-      return this.getDeviceId();
+      return await this.getDeviceId();
     } catch (error) {
       console.error('【COCO_DEVICE】确保设备ID失败:', error);
-      return this.getDeviceId();
+      return await this.getDeviceId();
     }
   },
 

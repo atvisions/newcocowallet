@@ -2,22 +2,24 @@ import { Image } from 'react-native';
 import { api } from '../services/api';
 
 /**
- * 处理钱包数据，确保头像URL格式正确
+ * 处理钱包数据，返回原始头像URL
  * @param {Object} wallet - 钱包对象
  * @returns {Object} - 处理后的钱包对象
  */
 export const processWalletData = (wallet) => {
-  if (!wallet) return wallet;
-  
-  const processedWallet = { ...wallet };
-  
-  // 检查avatar是否为相对路径，如果是则添加baseURL前缀
-  if (processedWallet.avatar && !processedWallet.avatar.startsWith('http')) {
-    processedWallet.avatar = `https://www.cocowallet.io${processedWallet.avatar}`;
-    //processedWallet.avatar = `http://192.168.3.16:8000${processedWallet.avatar}`;
+  if (!wallet) {
+    console.log('【钱包处理】收到空钱包数据');
+    return wallet;
   }
   
-  return processedWallet;
+  console.log('【钱包处理】处理前的钱包数据:', {
+    id: wallet.id,
+    name: wallet.name,
+    avatar: wallet.avatar
+  });
+  
+  // 直接返回原始钱包数据，不做URL处理
+  return wallet;
 };
 
 /**

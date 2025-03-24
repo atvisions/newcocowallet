@@ -14,8 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import Loading from '../../components/common/Loading';
 import Header from '../../components/common/Header';
-import { DeviceManager } from '../../utils/device';
-import { getReferralInfo, clearReferralInfo } from '../../utils/referral';
 
 //const SUPPORTED_CHAINS = ['ETH', 'BASE', 'SOL'];
 const SUPPORTED_CHAINS = ['SOL'];
@@ -74,22 +72,20 @@ export default function SelectChain({ navigation, route }) {
       const response = await api.selectChain(deviceId, chain);
       console.log('Select chain response:', response);
 
-      if (response.status === 'success') {
+      if (purpose === 'create') {
         if (!response.data.mnemonic) {
           throw new Error('No mnemonic received');
         }
-        if (purpose === 'create') {
-          navigation.navigate('ShowMnemonic', {
-            mnemonic: response.data.mnemonic,
-            chain,
-            deviceId,
-          });
-        } else if (purpose === 'import') {
-          navigation.navigate('ImportWallet', {
-            chain,
-            deviceId
-          });
-        }
+        navigation.navigate('ShowMnemonic', {
+          mnemonic: response.data.mnemonic,
+          chain,
+          deviceId,
+        });
+      } else if (purpose === 'import') {
+        navigation.navigate('ImportWallet', {
+          chain,
+          deviceId
+        });
       }
     } catch (error) {
       console.error('Failed to select chain:', error);

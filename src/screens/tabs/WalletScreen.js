@@ -669,11 +669,26 @@ const WalletScreen = ({ navigation }) => {
     console.log('Rendering wallet info with avatar URL:', selectedWallet?.avatar);
     return (
       <View style={styles.walletInfo}>
-        <Image 
-          source={{ uri: selectedWallet?.avatar }}
-          style={styles.walletAvatar}
-          onError={(error) => console.error('Failed to load wallet avatar:', error)}
-        />
+        {selectedWallet?.avatar ? (
+          <Image 
+            source={{ uri: selectedWallet.avatar }}
+            style={styles.walletAvatar}
+            defaultSource={require('../../../assets/default-token.png')}
+            onError={(error) => {
+              console.error('Failed to load wallet avatar:', error.nativeEvent);
+            }}
+          />
+        ) : (
+          <View style={[styles.walletAvatar, { 
+            backgroundColor: '#4A6FFF', 
+            justifyContent: 'center', 
+            alignItems: 'center' 
+          }]}>
+            <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>
+              {selectedWallet?.name ? selectedWallet.name.charAt(0).toUpperCase() : '?'}
+            </Text>
+          </View>
+        )}
         <Text style={styles.walletName}>{selectedWallet?.name}</Text>
       </View>
     );
@@ -728,10 +743,26 @@ const WalletScreen = ({ navigation }) => {
             style={styles.walletSelector}
             onPress={handleWalletSelect}
           >
-            <Image 
-              source={{ uri: selectedWallet?.avatar }} 
-              style={styles.walletAvatar} 
-            />
+            {selectedWallet?.avatar ? (
+              <Image 
+                source={{ uri: selectedWallet.avatar }} 
+                style={styles.walletAvatar} 
+                defaultSource={require('../../../assets/default-token.png')}
+                onError={(error) => {
+                  console.error('Failed to load wallet avatar:', error.nativeEvent);
+                }}
+              />
+            ) : (
+              <View style={[styles.walletAvatar, { 
+                backgroundColor: '#4A6FFF', 
+                justifyContent: 'center', 
+                alignItems: 'center' 
+              }]}>
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>
+                  {selectedWallet?.name ? selectedWallet.name.charAt(0).toUpperCase() : '?'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.walletName}>{selectedWallet?.name}</Text>
             <Ionicons name="chevron-down" size={20} color="#8E8E8E" />
           </TouchableOpacity>

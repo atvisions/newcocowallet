@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,7 +13,8 @@ import {
   ActivityIndicator,
   Modal,
   Share,
-  Clipboard
+  Clipboard,
+  RefreshControl
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { api } from '../../services/api';
@@ -25,6 +26,9 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Updates from 'expo-updates';
 import Toast, { ToastView } from '../../components/Toast';
+import * as Linking from 'expo-linking';
+import { processWalletData } from '../../utils/walletUtils';
+import defaultTokenImage from '../../../assets/default-token.png';
 
 // Add this constant - increment it with each OTA update
 const BUILD_NUMBER = "1"; // This can be updated with OTA updates
@@ -283,41 +287,57 @@ const PointsInfoModal = ({ visible, onClose }) => {
 };
 
 // 修改 ShareLinkItem 组件，并整合积分显示
-const PointsAndReferralCard = ({ setPointsInfoModalVisible, navigation }) => {
+const PointsAndReferralCard = ({ 
+  setPointsInfoModalVisible, 
+  navigation, 
+  externalUserPoints,
+  refreshing,
+  forceRefresh
+}) => {
   const [isLoadingPoints, setIsLoadingPoints] = useState(false);
   const [referralLink, setReferralLink] = useState('');
   const [copiedSuccess, setCopiedSuccess] = useState(false);
   const [userPoints, setUserPoints] = useState(0);
+  const [avatarError, setAvatarError] = useState(false);
 
   // 加载数据
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoadingPoints(true);
-        const deviceId = await DeviceManager.getDeviceId();
-        
-        // 获取用户积分
+    loadData();
+  }, [forceRefresh]);
+
+  // 当外部传入积分值变化时更新内部状态
+  useEffect(() => {
+    if (externalUserPoints !== null && externalUserPoints !== undefined) {
+      setUserPoints(externalUserPoints);
+    }
+  }, [externalUserPoints]);
+
+  const loadData = async () => {
+    try {
+      setIsLoadingPoints(true);
+      const deviceId = await DeviceManager.getDeviceId();
+      
+      // 获取用户积分
+      if (externalUserPoints === null || externalUserPoints === undefined) {
         const pointsResponse = await api.getPoints(deviceId);
         if (pointsResponse.status === 'success') {
           setUserPoints(pointsResponse.data.total_points || 0);
         }
-        
-        // 获取推荐链接
-        const linkResponse = await api.getLink(deviceId);
-        if (linkResponse.status === 'success') {
-          const code = linkResponse.data.code || '';
-          const baseUrl = 'https://www.cocowallet.io';
-          setReferralLink(`${baseUrl}?ref=${code}`);
-        }
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      } finally {
-        setIsLoadingPoints(false);
       }
-    };
-    
-    loadData();
-  }, []);
+      
+      // 获取推荐链接 - 使用后端返回的完整链接
+      const linkResponse = await api.getLink(deviceId);
+      if (linkResponse.status === 'success') {
+        // 直接使用后端返回的完整链接
+        setReferralLink(linkResponse.data.full_link || '');
+        console.log('获取到推荐链接:', linkResponse.data.full_link);
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    } finally {
+      setIsLoadingPoints(false);
+    }
+  };
   
   // 复制到剪贴板并显示成功图标
   const copyToClipboard = () => {
@@ -374,7 +394,7 @@ const PointsAndReferralCard = ({ setPointsInfoModalVisible, navigation }) => {
         
         <View style={styles.pointsValueContainer}>
           <View style={styles.pointsValueWrapper}>
-            {isLoadingPoints ? (
+            {isLoadingPoints || refreshing ? (
               <ActivityIndicator size="small" color="#F7B84B" />
             ) : (
               <Text style={styles.pointsValueText}>{userPoints}</Text>
@@ -426,12 +446,29 @@ const PointsAndReferralCard = ({ setPointsInfoModalVisible, navigation }) => {
   );
 };
 
-export default function SettingsScreen({ navigation }) {
+const SettingsScreen = ({ navigation }) => {
+  const { wallets, loadWallets, selectedWallet } = useWallet();
+  const [refreshing, setRefreshing] = useState(false);
+  const [userPoints, setUserPoints] = useState(null);
   const [hasPaymentPassword, setHasPaymentPassword] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const { selectedWallet } = useWallet();
   const insets = useSafeAreaInsets();
   const [pointsInfoModalVisible, setPointsInfoModalVisible] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
+  // 添加这个状态来跟踪处理后的钱包数据
+  const [processedWallet, setProcessedWallet] = useState(null);
+
+  // 添加useEffect来处理钱包数据
+  useEffect(() => {
+    if (selectedWallet) {
+      const processed = processWalletData(selectedWallet);
+      setProcessedWallet(processed);
+      console.log('处理后的钱包头像URL:', processed.avatar);
+    } else {
+      setProcessedWallet(null);
+    }
+  }, [selectedWallet]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -545,6 +582,86 @@ export default function SettingsScreen({ navigation }) {
     }
   };
   
+  // 处理下拉刷新
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    
+    try {
+      // 使用 loadWallets 替代 fetchWallets
+      if (typeof loadWallets === 'function') {
+        await loadWallets();
+      } else {
+        // 备选刷新方法
+        await refreshWalletData();
+      }
+      
+      // 更新用户积分信息
+      await loadUserPoints();
+      
+      // 触发子组件刷新
+      setRefreshTrigger(prev => prev + 1);
+      
+      // 检查推荐系统信息（用于调试）
+      if (__DEV__) {
+        await checkReferralSystemInfo();
+      }
+      
+    } catch (error) {
+      console.error('刷新设置页面失败:', error);
+      Alert.alert('刷新失败', '请检查网络连接后重试');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadWallets]);
+  
+  // 备选的钱包刷新函数
+  const refreshWalletData = async () => {
+    try {
+      const deviceId = await DeviceManager.getDeviceId();
+      // 直接使用 API 获取钱包列表
+      await api.getWallets(deviceId);
+      console.log('钱包数据已刷新');
+    } catch (error) {
+      console.error('刷新钱包数据失败:', error);
+      throw error; // 重新抛出错误以便上层捕获
+    }
+  };
+  
+  // 加载用户积分
+  const loadUserPoints = async () => {
+    try {
+      const deviceId = await DeviceManager.getDeviceId();
+      const result = await api.getPoints(deviceId);
+      
+      if (result && result.status === 'success') {
+        setUserPoints(result.data.total_points || 0);
+        console.log('【设置页面】加载到用户积分:', result.data.total_points);
+      }
+    } catch (error) {
+      console.error('加载用户积分失败:', error);
+    }
+  };
+  
+  // 检查推荐系统信息（开发环境下的调试功能）
+  const checkReferralSystemInfo = async () => {
+    try {
+      // 只保留推荐统计的获取
+      const deviceId = await DeviceManager.getDeviceId();
+      const stats = await api.getReferralStats(deviceId);
+      console.log('【设置页面】推荐统计信息:', stats);
+    } catch (error) {
+      console.error('检查推荐系统信息失败:', error);
+    }
+  };
+  
+  // 首次加载时获取用户积分
+  React.useEffect(() => {
+    loadUserPoints();
+  }, []);
+  
+  // 添加图片加载错误状态
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
+  
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -564,10 +681,26 @@ export default function SettingsScreen({ navigation }) {
             style={styles.walletSelector}
             onPress={() => navigation.navigate('WalletSelector')}
           >
-            <Image 
-              source={{ uri: selectedWallet?.avatar }} 
-              style={styles.walletAvatar} 
-            />
+            {selectedWallet?.avatar ? (
+              <Image 
+                source={{ uri: selectedWallet.avatar }} 
+                style={styles.walletAvatar}
+                onError={(error) => {
+                  console.error('头像加载失败:', error.nativeEvent);
+                  setAvatarLoadError(true);
+                }}
+              />
+            ) : (
+              <View style={[styles.walletAvatar, { 
+                backgroundColor: '#4A6FFF', 
+                justifyContent: 'center', 
+                alignItems: 'center' 
+              }]}>
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>
+                  {selectedWallet?.name ? selectedWallet.name.charAt(0).toUpperCase() : '?'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.walletName}>{selectedWallet?.name}</Text>
             <Ionicons name="chevron-down" size={20} color="#8E8E8E" />
           </TouchableOpacity>
@@ -582,14 +715,29 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#4A6FFF"
+              colors={['#4A6FFF', '#2E5BFF']}
+              progressBackgroundColor="#171C32"
+            />
+          }
+        >
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Rewards & Referrals</Text>
             
-            {/* 使用新的合并卡片组件 */}
+            {/* 传递积分和刷新状态给组件 */}
             <PointsAndReferralCard 
               setPointsInfoModalVisible={setPointsInfoModalVisible}
               navigation={navigation}
+              externalUserPoints={userPoints}
+              refreshing={refreshing}
+              forceRefresh={refreshTrigger}
             />
           </View>
 
@@ -1030,3 +1178,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 });
+
+export default SettingsScreen;

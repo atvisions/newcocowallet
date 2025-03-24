@@ -2,14 +2,13 @@ import axios from 'axios';
 import { DeviceManager } from '../utils/device';
 import { logger } from '../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getReferralInfo, clearReferralInfo } from '../utils/referral';
 import * as Network from 'expo-network';
 
 // 简化初始化日志
 console.log('【COCO_INIT】API模块初始化');
 
 // 修改BASE_URL，统一使用生产环境地址
-const BASE_URL = 'https://www.cocowallet.io/api/v1';
+const BASE_URL = 'http://192.168.3.16:8000/api/v1';
 
 // 直接输出使用的API地址
 console.log('【COCO_INIT】使用API地址:', BASE_URL);
@@ -173,18 +172,11 @@ export const api = {
 
   async selectChain(deviceId, chain) {
     try {
-      const referralInfo = await getReferralInfo();
-      
       const response = await axiosInstance.post('/wallets/select_chain/', {
         device_id: deviceId,
         chain,
-        referral_info: referralInfo
       });
 
-      if (response.data?.status === 'success') {
-        await clearReferralInfo();
-      }
-      
       return response.data;
     } catch (error) {
       throw error;
@@ -508,10 +500,6 @@ export const api = {
       }
 
       const response = await axiosInstance.post('/wallets/import_private_key/', data);
-
-      if (response.data?.status === 'success') {
-        await clearReferralInfo();
-      }
 
       return response.data;
     } catch (error) {
@@ -939,59 +927,6 @@ export const api = {
     }
   },
 
-  async createWallet(walletData) {
-    try {
-      // 获取存储的推荐信息
-      const referralInfo = await getReferralInfo();
-      
-      // 如果有推荐信息，添加到请求数据中
-      if (referralInfo) {
-        walletData.referral_info = {
-          ref_code: referralInfo.ref_code,
-          temp_id: referralInfo.temp_id
-        };
-      }
-      
-      // 发送创建钱包请求
-      const response = await axiosInstance.post('/wallets/', walletData);
-      
-      // 如果创建成功，清除推荐信息
-      if (response.data?.status === 'success') {
-        await clearReferralInfo();
-      }
-      
-      return response.data;
-    } catch (error) {
-      console.error('Failed to create wallet:', error);
-      throw error;
-    }
-  },
-
-  updateDeviceId: async (oldDeviceId, newDeviceId) => {
-    try {
-      if (!oldDeviceId || !newDeviceId) {
-        throw new Error('Both old and new device IDs are required');
-      }
-      
-      console.log('【COCO_API】更新设备ID:', {old: oldDeviceId, new: newDeviceId});
-      
-      const response = await axiosInstance.post('/referrals/update_device_id/', {
-        old_device_id: oldDeviceId,
-        new_device_id: newDeviceId
-      });
-      
-      if (response.data?.status === 'success') {
-        console.log('【COCO_API】设备ID更新成功:', response.data);
-        return response.data;
-      } else {
-        throw new Error(response.data?.message || 'Failed to update device ID');
-      }
-    } catch (error) {
-      console.error('【COCO_API】设备ID更新失败:', error);
-      throw error;
-    }
-  },
-
   // 获取用户积分
   async getPoints(deviceId) {
     try {
@@ -1022,7 +957,7 @@ export const api = {
         {
           params: {
             device_id: deviceId,
-            page: page,
+            page,
             page_size: pageSize
           }
         }
@@ -1049,28 +984,6 @@ export const api = {
     }
   },
   
-  // 获取推荐链接
-  async getLink(deviceId) {
-    try {
-      if (!deviceId) {
-        throw new Error('Device ID is required');
-      }
-      
-      const response = await axiosInstance.get('/referrals/get_link/', {
-        params: { device_id: deviceId }
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get referral link:', error);
-      return {
-        status: 'error',
-        message: error.response?.data?.message || 'Failed to get referral link',
-        data: { code: '', url: '' }
-      };
-    }
-  },
-  
   // 获取推荐统计数据
   async getReferralStats(deviceId) {
     try {
@@ -1090,11 +1003,8 @@ export const api = {
         message: error.response?.data?.message || 'Failed to get referral statistics',
         data: { 
           total_referrals: 0,
-          completed_referrals: 0,
-          pending_referrals: 0,
           total_points: 0,
-          download_points: 0,
-          wallet_points: 0
+          download_points: 0
         }
       };
     }
@@ -1126,87 +1036,26 @@ export const api = {
     }
   },
   
-  // 记录网页下载（通常在前端网页使用，但为完整性添加）
-  async recordWebDownload(referrerCode, deviceId) {
+  // 获取推荐链接
+  async getLink(deviceId) {
     try {
-      if (!referrerCode || !deviceId) {
-        throw new Error('Referrer code and device ID are required');
+      if (!deviceId) {
+        throw new Error('Device ID is required');
       }
       
-      const response = await axiosInstance.post('/referrals/record_web_download/', {
-        referrer_code: referrerCode,
-        device_id: deviceId
+      const response = await axiosInstance.get('/referrals/get_link/', {
+        params: { device_id: deviceId }
       });
       
       return response.data;
     } catch (error) {
-      console.error('Failed to record download:', error);
+      console.error('Failed to get referral link:', error);
       return {
         status: 'error',
-        message: error.response?.data?.message || 'Failed to record download'
-      };
-    }
-  },
-  
-  // 记录访问（通常在前端网页使用，但为完整性添加）
-  async recordVisit(referrerCode, deviceId) {
-    try {
-      if (!referrerCode || !deviceId) {
-        throw new Error('Referrer code and device ID are required');
-      }
-      
-      const response = await axiosInstance.post('/referrals/record_visit/', {
-        referrer_code: referrerCode,
-        device_id: deviceId
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Failed to record visit:', error);
-      return {
-        status: 'error',
-        message: error.response?.data?.message || 'Failed to record visit'
+        message: error.response?.data?.message || 'Failed to get referral link',
+        data: { code: '', url: '' }
       };
     }
   },
 };
 
-export const setPaymentPassword = async (deviceId, password) => {
-    try {
-        const response = await fetch(`${BASE_URL}/wallets/set_password/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                device_id: deviceId,
-                payment_password: password,
-            }),
-        });
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        throw new Error('Failed to save password');
-    }
-};
-
-export const selectChain = async (deviceId, selectedChain) => {
-    const response = await fetch(`${BASE_URL}/select-chain`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            device_id: deviceId,
-            chain: selectedChain,
-        }),
-    });
-
-    if (!response.ok) {
-        const errorResponse = await response.json();
-        throw new Error(`API Error Response: ${JSON.stringify(errorResponse)}`);
-    }
-
-    return await response.json();
-};

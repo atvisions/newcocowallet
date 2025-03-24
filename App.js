@@ -7,7 +7,6 @@ import * as Updates from 'expo-updates';
 import { Alert, View, Text, StyleSheet, Modal, TouchableOpacity, Image, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { saveReferralInfo } from './src/utils/referral';
 import * as Network from 'expo-network';
 import { api } from './src/services/api';
 import NetInfo from '@react-native-community/netinfo';
@@ -203,56 +202,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 检查启动参数
-    const checkInitialURL = async () => {
-      try {
-        const url = await Linking.getInitialURL();
-        if (url) {
-          const params = new URLSearchParams(url.split('?')[1]);
-          const install_params = params.get('install_params');
-          
-          if (install_params) {
-            const decodedParams = JSON.parse(
-              Buffer.from(install_params, 'base64').toString()
-            );
-            
-            if (decodedParams.referrer && decodedParams.temp_device_id) {
-              // 保存推荐信息
-              await saveReferralInfo(
-                decodedParams.referrer,
-                decodedParams.temp_device_id
-              );
-              
-              // 获取当前设备ID并更新
-              const currentDeviceId = await DeviceManager.getDeviceId();
-              if (currentDeviceId && decodedParams.temp_device_id !== currentDeviceId) {
-                console.log('【COCO_APP】更新设备ID:', {
-                  old: decodedParams.temp_device_id,
-                  new: currentDeviceId
-                });
-                
-                try {
-                  // 调用更新设备ID的API
-                  await api.updateDeviceId(
-                    decodedParams.temp_device_id, 
-                    currentDeviceId
-                  );
-                } catch (error) {
-                  console.error('【COCO_APP】设备ID更新失败:', error);
-                }
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to check initial URL:', error);
-      }
-    };
-
-    checkInitialURL();
-  }, []);
-
-  useEffect(() => {
     const checkNetwork = async () => {
       try {
         const networkState = await Network.getNetworkStateAsync();
@@ -290,72 +239,40 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 应用启动诊断
-    console.log('【COCO_APP】应用启动');
-    console.log('【COCO_APP】开发环境状态:', { isDev: __DEV__ });
-    
-    // 开始网络测试
-    const testNetworkConnections = async () => {
-      console.log('【COCO_APP】开始网络诊断');
+    // 应用启动诊断 - 添加更多详细信息
+    const diagnoseLaunch = async () => {
+      console.log('【COCO_APP】应用启动');
+      console.log('【COCO_APP】开发环境状态:', { isDev: __DEV__ });
       
-      // 测试网络状态
+      // 显示更详细的 Updates 信息
+      console.log('【COCO_APP】Updates 信息:', {
+        runtimeVersion: Updates.runtimeVersion,
+        channel: Updates.channel,
+        isEnabled: Updates.isEnabled,
+        isEmergencyLaunch: Updates.isEmergencyLaunch,
+        isUsingEmbeddedAssets: Updates.isUsingEmbeddedAssets,
+        checkAutomatically: Updates.checkAutomatically,
+      });
+      
+      // 尝试输出 manifest 信息
       try {
-        const netState = await Network.getNetworkStateAsync();
-        console.log('【COCO_APP】网络状态:', {
-          isConnected: netState.isConnected,
-          type: netState.type,
-          isInternetReachable: netState.isInternetReachable
+        const manifest = Updates.manifest;
+        console.log('【COCO_APP】当前 manifest:', {
+          id: manifest?.id,
+          revisionId: manifest?.revisionId,
+          commitTime: manifest?.commitTime,
+          releaseChannel: manifest?.releaseChannel,
+          sdkVersion: manifest?.sdkVersion,
+          bundleUrl: manifest?.bundleUrl?.substring(0, 50) + '...',
         });
       } catch (e) {
-        console.log('【COCO_APP】获取网络状态失败:', e.message);
+        console.log('【COCO_APP】获取 manifest 失败:', e.message);
       }
-      
-      // 测试基础URL连接
-      const testURLs = [
-        'https://www.cocowallet.io/api/v1/',
-        // 测试一个知名网站作为对照
-        'https://www.google.com'
-      ];
-      
-      for (const url of testURLs) {
-        try {
-          console.log(`【COCO_APP】测试URL: ${url}`);
-          const startTime = Date.now();
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: { 'Cache-Control': 'no-cache' }
-          });
-          const elapsed = Date.now() - startTime;
-          console.log(`【COCO_APP】URL ${url} 测试结果:`, {
-            success: response.ok,
-            status: response.status, 
-            time: elapsed,
-            type: response.headers.get('content-type')
-          });
-        } catch (error) {
-          console.log(`【COCO_APP】URL ${url} 测试失败:`, {
-            message: error.message,
-            code: error.code,
-            name: error.name
-          });
-        }
-      }
-      
-      // 测试API入口
-      try {
-        console.log('【COCO_APP】测试API入口点');
-        const response = await api.getSupportedChains();
-        console.log('【COCO_APP】API入口测试成功:', response);
-      } catch (error) {
-        console.log('【COCO_APP】API入口测试失败:', {
-          message: error.message,
-          stack: error.stack
-        });
-      }
+
+      // 其他诊断代码...
     };
     
-    // 执行测试
-    setTimeout(testNetworkConnections, 2000); // 延迟2秒执行，确保应用已完全初始化
+    diagnoseLaunch();
   }, []);
 
   useEffect(() => {
@@ -398,17 +315,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const initializeDeviceId = async () => {
+    const initApp = async () => {
       try {
-        // 确保设备ID正确加载和保存
-        const deviceId = await DeviceManager.ensureDeviceId();
-        console.log('【COCO_APP】应用启动时恢复的设备ID:', deviceId);
+        console.log('应用启动: 确保设备ID');
+        // 应用启动时首先确保设备ID
+        await DeviceManager.ensureDeviceId();
       } catch (error) {
-        console.error('【COCO_APP】初始化设备ID失败:', error);
+        console.error('应用启动: 设备ID初始化失败', error);
       }
     };
     
-    initializeDeviceId();
+    initApp();
   }, []);
 
   return (
