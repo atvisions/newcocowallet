@@ -1,14 +1,23 @@
 import axios from 'axios';
 import { DeviceManager } from '../utils/device';
 import { logger } from '../utils/logger';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getReferralInfo, clearReferralInfo } from '../utils/referral';
+import * as Network from 'expo-network';
 
-// 确保 BASE_URL 是正确的
-const BASE_URL = 'http://192.168.3.16:8000/api/v1';
-//const BASE_URL = 'https://api.cocowallet.io/api/v1';
+// 简化初始化日志
+console.log('【COCO_INIT】API模块初始化');
+
+// 修改BASE_URL，统一使用生产环境地址
+const BASE_URL = 'https://www.cocowallet.io/api/v1';
+
+// 直接输出使用的API地址
+console.log('【COCO_INIT】使用API地址:', BASE_URL);
+
 // 创建 axios 实例
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  timeout: 60000,  // 增加超时时间到60秒
+  timeout: 60000,  // 保持60秒超时
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,54 +27,116 @@ const axiosInstance = axios.create({
   }
 });
 
-// 修改响应拦截器
+// 简化请求拦截器，减少日志输出
+axiosInstance.interceptors.request.use(config => {
+  // 只在需要时记录关键请求信息
+  if (__DEV__) {
+    console.log(`【COCO_NET】发送请求: ${config.method?.toUpperCase()} ${config.url}`);
+  }
+  return config;
+});
+
+// 简化响应拦截器
+axiosInstance.interceptors.response.use(
+  response => {
+    // 只在开发环境或出错时记录
+    if (__DEV__) {
+      console.log(`【COCO_NET】请求成功: ${response.status} ${response.config.url}`);
+    }
+    return response;
+  },
+  error => {
+    // 保留错误日志，这对诊断问题很重要
+    console.log('【COCO_NET】请求失败:', {
+      url: error.config?.url,
+      message: error.message
+    });
+    
+    if (error.response) {
+      console.log('【COCO_NET】错误响应:', {
+        status: error.response.status,
+        data: error.response.data
+      });
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
+// 保留第二个响应拦截器
 axiosInstance.interceptors.response.use(
   response => response,
   error => {
     if (error.response) {
-      // 直接返回服务器的错误响应
       return Promise.reject(error.response.data || {
         status: 'error',
-        message: 'An error occurred'
+        message: `Server error: ${error.response.status}`
       });
     } else if (error.request) {
       return Promise.reject({
         status: 'error',
-        message: 'Network error, please check your connection'
+        message: `Network error: ${error.message}`
       });
     } else {
       return Promise.reject({
         status: 'error',
-        message: 'Request failed'
+        message: `Request failed: ${error.message}`
       });
     }
   }
 );
 
-// 修改链路径配置
+// 保留重试拦截器
+axiosInstance.interceptors.response.use(null, async error => {
+  if (error.config && error.response && error.response.status >= 500) {
+    try {
+      return await axiosInstance.request(error.config);
+    } catch (retryError) {
+      return Promise.reject(retryError);
+    }
+  }
+  return Promise.reject(error);
+});
+
+// 网络状态检查
+const checkNetworkBeforeRequest = async config => {
+  try {
+    const netInfo = await Network.getNetworkStateAsync();
+    if (!netInfo.isConnected) {
+      throw new Error('No network connection');
+    }
+    return config;
+  } catch (error) {
+    return Promise.reject(error);
+  }
+};
+
+axiosInstance.interceptors.request.use(checkNetworkBeforeRequest);
+
+// 保持链路径配置不变
 const CHAIN_PATHS = {
   sol: 'solana',
   solana: 'solana',
   eth: 'evm',
   evm: 'evm',
-  base: 'evm',  // 添加 BASE 链映射
-  BASE: 'evm'   // 添加大写映射
+  base: 'evm',
+  BASE: 'evm'
 };
 
-// 修改获取链路径的辅助函数
+// 保持辅助函数不变
 const getChainPath = (chain) => {
   const chainKey = chain?.toLowerCase();
   const path = CHAIN_PATHS[chainKey];
   if (!path) {
-    return 'evm';  // 默认返回 evm
+    return 'evm';
   }
   return path;
 };
 
-// 统一的错误处理函数
+// 保持错误处理函数不变
 const handleApiError = (error, defaultMessage) => {
   if (error.status === 'error') {
-    return error;  // 如果已经是格式化的错误，直接返回
+    return error;
   }
   return {
     status: 'error',
@@ -73,7 +144,7 @@ const handleApiError = (error, defaultMessage) => {
   };
 };
 
-// 使用配置好的实例
+// 保持 api 对象的所有方法不变
 export const api = {
   async setPaymentPassword(deviceId, password, confirmPassword, useBiometric = false) {
     try {
@@ -102,10 +173,18 @@ export const api = {
 
   async selectChain(deviceId, chain) {
     try {
+      const referralInfo = await getReferralInfo();
+      
       const response = await axiosInstance.post('/wallets/select_chain/', {
         device_id: deviceId,
-        chain
+        chain,
+        referral_info: referralInfo
       });
+
+      if (response.data?.status === 'success') {
+        await clearReferralInfo();
+      }
+      
       return response.data;
     } catch (error) {
       throw error;
@@ -183,10 +262,12 @@ export const api = {
 
   async checkPaymentPasswordStatus(deviceId) {
     try {
+      console.log('【COCO_API】检查支付密码状态:', deviceId);
       const response = await axiosInstance.get(`/wallets/payment_password/status/${deviceId}/`);
+      console.log('【COCO_API】密码状态响应:', response.data);
       return response.data?.data?.has_payment_password || false;
     } catch (error) {
-      // 返回标准格式的错误响应
+      console.error('【COCO_API】获取密码状态失败:', error.message);
       return {
         status: 'error',
         message: error.response?.data?.message || 'Network error, please check your connection',
@@ -412,17 +493,29 @@ export const api = {
     }
   },
 
-  async importPrivateKey(deviceId, chain, privateKey, password) {
+  async importPrivateKey(deviceId, chain, privateKey, password, referralInfo = null) {
     try {
-      const response = await axiosInstance.post('/wallets/import_private_key/', {
+      const data = {
         device_id: deviceId,
         chain,
         private_key: privateKey,
-        payment_password: password
-      });
+        payment_password: password,
+      };
+
+      // 只有在有推荐信息时才添加
+      if (referralInfo) {
+        data.referral_info = referralInfo;
+      }
+
+      const response = await axiosInstance.post('/wallets/import_private_key/', data);
+
+      if (response.data?.status === 'success') {
+        await clearReferralInfo();
+      }
+
       return response.data;
     } catch (error) {
-      return error;
+      throw error;
     }
   },
 
@@ -845,6 +938,59 @@ export const api = {
       };
     }
   },
+
+  async createWallet(walletData) {
+    try {
+      // 获取存储的推荐信息
+      const referralInfo = await getReferralInfo();
+      
+      // 如果有推荐信息，添加到请求数据中
+      if (referralInfo) {
+        walletData.referral_info = {
+          ref_code: referralInfo.ref_code,
+          temp_id: referralInfo.temp_id
+        };
+      }
+      
+      // 发送创建钱包请求
+      const response = await axiosInstance.post('/wallets/', walletData);
+      
+      // 如果创建成功，清除推荐信息
+      if (response.data?.status === 'success') {
+        await clearReferralInfo();
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create wallet:', error);
+      throw error;
+    }
+  },
+
+  updateDeviceId: async (oldDeviceId, newDeviceId) => {
+    try {
+      if (!oldDeviceId || !newDeviceId) {
+        throw new Error('Both old and new device IDs are required');
+      }
+      
+      console.log('【COCO_API】更新设备ID:', {old: oldDeviceId, new: newDeviceId});
+      
+      const response = await axiosInstance.post('/referrals/update_device_id/', {
+        old_device_id: oldDeviceId,
+        new_device_id: newDeviceId
+      });
+      
+      if (response.data?.status === 'success') {
+        console.log('【COCO_API】设备ID更新成功:', response.data);
+        return response.data;
+      } else {
+        throw new Error(response.data?.message || 'Failed to update device ID');
+      }
+    } catch (error) {
+      console.error('【COCO_API】设备ID更新失败:', error);
+      throw error;
+    }
+  },
 };
 
 export const setPaymentPassword = async (deviceId, password) => {
@@ -861,7 +1007,7 @@ export const setPaymentPassword = async (deviceId, password) => {
         });
 
         const data = await response.json();
-        return data; // 确保返回的数据包含 status 和 message
+        return data;
     } catch (error) {
         throw new Error('Failed to save password');
     }

@@ -38,11 +38,14 @@
       "allowBackup": true,
       "userInterfaceStyle": "dark",
       "permissions": [
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE"
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
       ],
       "package": "com.cocowallet.cocowallet",
-      "versionCode": 2
+      "versionCode": 2,
+      "networkSecurityConfig": {
+        "cleartextTrafficPermitted": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

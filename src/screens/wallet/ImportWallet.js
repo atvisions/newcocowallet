@@ -16,6 +16,7 @@ import Loading from '../../components/common/Loading';
 import { CommonActions } from '@react-navigation/native';
 import { useWallet } from '../../contexts/WalletContext';
 import { processWalletData } from '../../utils/walletUtils';
+import { getReferralInfo, clearReferralInfo } from '../../utils/referral';
 
 const ImportWallet = ({ navigation, route }) => {
   const { chain } = route.params || {};
@@ -34,20 +35,23 @@ const ImportWallet = ({ navigation, route }) => {
       purpose: 'import_wallet',
       onSuccess: async (password) => {
         try {
-          // 显示加载页面
           navigation.navigate('LoadingWallet', {
             message: 'Importing wallet...'
           });
 
           const deviceId = await DeviceManager.getDeviceId();
+          const referralInfo = await getReferralInfo();
+
           const response = await api.importPrivateKey(
             deviceId,
             chain,
             privateKey,
-            password
+            password,
+            referralInfo
           );
 
           if (response?.status === 'success') {
+            await clearReferralInfo();
             // 处理钱包数据
             if (response.wallet) {
               const processedWallet = processWalletData(response.wallet);
@@ -65,9 +69,7 @@ const ImportWallet = ({ navigation, route }) => {
                       name: 'MainStack',
                       params: {
                         screen: 'Tabs',
-                        params: {
-                          screen: 'Wallet'
-                        }
+                        params: { screen: 'Wallet' }
                       }
                     }
                   ]
@@ -76,7 +78,6 @@ const ImportWallet = ({ navigation, route }) => {
             }
             return true;
           } else {
-            // 导入失败，返回到导入页面
             navigation.goBack();
             Alert.alert('Error', response.message || 'Failed to import wallet');
             return false;

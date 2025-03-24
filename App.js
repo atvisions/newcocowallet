@@ -4,8 +4,14 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { WalletProvider } from './src/contexts/WalletContext';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as Updates from 'expo-updates';
-import { Alert, View, Text, StyleSheet, Modal, TouchableOpacity, Image } from 'react-native';
+import { Alert, View, Text, StyleSheet, Modal, TouchableOpacity, Image, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveReferralInfo } from './src/utils/referral';
+import * as Network from 'expo-network';
+import { api } from './src/services/api';
+import NetInfo from '@react-native-community/netinfo';
+import { DeviceManager } from './src/utils/device';
 
 // Custom update modal component
 const UpdateModal = ({ visible, onLater, onUpdate }) => {
@@ -194,6 +200,201 @@ export default function App() {
     } else {
       console.log('Development environment, skipping update check');
     }
+  }, []);
+
+  useEffect(() => {
+    // 检查启动参数
+    const checkInitialURL = async () => {
+      try {
+        const url = await Linking.getInitialURL();
+        if (url) {
+          const params = new URLSearchParams(url.split('?')[1]);
+          const install_params = params.get('install_params');
+          
+          if (install_params) {
+            const decodedParams = JSON.parse(
+              Buffer.from(install_params, 'base64').toString()
+            );
+            
+            if (decodedParams.referrer && decodedParams.temp_device_id) {
+              // 保存推荐信息
+              await saveReferralInfo(
+                decodedParams.referrer,
+                decodedParams.temp_device_id
+              );
+              
+              // 获取当前设备ID并更新
+              const currentDeviceId = await DeviceManager.getDeviceId();
+              if (currentDeviceId && decodedParams.temp_device_id !== currentDeviceId) {
+                console.log('【COCO_APP】更新设备ID:', {
+                  old: decodedParams.temp_device_id,
+                  new: currentDeviceId
+                });
+                
+                try {
+                  // 调用更新设备ID的API
+                  await api.updateDeviceId(
+                    decodedParams.temp_device_id, 
+                    currentDeviceId
+                  );
+                } catch (error) {
+                  console.error('【COCO_APP】设备ID更新失败:', error);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check initial URL:', error);
+      }
+    };
+
+    checkInitialURL();
+  }, []);
+
+  useEffect(() => {
+    const checkNetwork = async () => {
+      try {
+        const networkState = await Network.getNetworkStateAsync();
+        console.log('Network state:', {
+          isConnected: networkState.isConnected,
+          type: networkState.type,
+          isInternetReachable: networkState.isInternetReachable
+        });
+        
+        if (!networkState.isConnected || !networkState.isInternetReachable) {
+          Alert.alert(
+            'Network Error',
+            'Please check your internet connection and try again',
+            [
+              {
+                text: 'Retry',
+                onPress: checkNetwork
+              },
+              {
+                text: 'OK',
+                style: 'cancel'
+              }
+            ]
+          );
+        }
+      } catch (error) {
+        console.error('Network check error:', {
+          message: error.message,
+          stack: error.stack
+        });
+      }
+    };
+
+    checkNetwork();
+  }, []);
+
+  useEffect(() => {
+    // 应用启动诊断
+    console.log('【COCO_APP】应用启动');
+    console.log('【COCO_APP】开发环境状态:', { isDev: __DEV__ });
+    
+    // 开始网络测试
+    const testNetworkConnections = async () => {
+      console.log('【COCO_APP】开始网络诊断');
+      
+      // 测试网络状态
+      try {
+        const netState = await Network.getNetworkStateAsync();
+        console.log('【COCO_APP】网络状态:', {
+          isConnected: netState.isConnected,
+          type: netState.type,
+          isInternetReachable: netState.isInternetReachable
+        });
+      } catch (e) {
+        console.log('【COCO_APP】获取网络状态失败:', e.message);
+      }
+      
+      // 测试基础URL连接
+      const testURLs = [
+        'https://www.cocowallet.io/api/v1/',
+        // 测试一个知名网站作为对照
+        'https://www.google.com'
+      ];
+      
+      for (const url of testURLs) {
+        try {
+          console.log(`【COCO_APP】测试URL: ${url}`);
+          const startTime = Date.now();
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          const elapsed = Date.now() - startTime;
+          console.log(`【COCO_APP】URL ${url} 测试结果:`, {
+            success: response.ok,
+            status: response.status, 
+            time: elapsed,
+            type: response.headers.get('content-type')
+          });
+        } catch (error) {
+          console.log(`【COCO_APP】URL ${url} 测试失败:`, {
+            message: error.message,
+            code: error.code,
+            name: error.name
+          });
+        }
+      }
+      
+      // 测试API入口
+      try {
+        console.log('【COCO_APP】测试API入口点');
+        const response = await api.getSupportedChains();
+        console.log('【COCO_APP】API入口测试成功:', response);
+      } catch (error) {
+        console.log('【COCO_APP】API入口测试失败:', {
+          message: error.message,
+          stack: error.stack
+        });
+      }
+    };
+    
+    // 执行测试
+    setTimeout(testNetworkConnections, 2000); // 延迟2秒执行，确保应用已完全初始化
+  }, []);
+
+  useEffect(() => {
+    // 检查当前网络状态
+    const checkNetworkStatus = async () => {
+      try {
+        const state = await NetInfo.fetch();
+        console.log('【COCO_NET】当前网络状态:', {
+          isConnected: state.isConnected,
+          type: state.type,
+          isInternetReachable: state.isInternetReachable,
+          details: state.details
+        });
+        
+        // 如果没有网络连接，显示提示
+        if (!state.isConnected) {
+          Alert.alert(
+            '网络连接错误',
+            '请检查您的网络连接并重试',
+            [{ text: '确定' }]
+          );
+        }
+      } catch (error) {
+        console.error('【COCO_NET】获取网络状态失败:', error);
+      }
+    };
+    
+    // 执行网络检查
+    checkNetworkStatus();
+    
+    // 添加网络状态变化监听
+    const unsubscribe = NetInfo.addEventListener(state => {
+      console.log('【COCO_NET】网络状态变化:', {
+        isConnected: state.isConnected,
+        type: state.type
+      });
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   return (

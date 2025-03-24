@@ -1,0 +1,6 @@
+module Pods_CocoWallet {
+  umbrella header "Pods-CocoWallet-umbrella.h"
+
+  export *
+  module * { export * }
+}
