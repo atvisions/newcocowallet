@@ -397,6 +397,20 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const initializeDeviceId = async () => {
+      try {
+        // 确保设备ID正确加载和保存
+        const deviceId = await DeviceManager.ensureDeviceId();
+        console.log('【COCO_APP】应用启动时恢复的设备ID:', deviceId);
+      } catch (error) {
+        console.error('【COCO_APP】初始化设备ID失败:', error);
+      }
+    };
+    
+    initializeDeviceId();
+  }, []);
+
   return (
     <WalletProvider>
       <NavigationContainer>

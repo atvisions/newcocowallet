@@ -2442,16 +2442,22 @@ const styles = StyleSheet.create({
     elevation: 5,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
-    backgroundColor: 'rgba(40, 42, 70, 1)',
-    minHeight: 180, // 添加最小高度确保内容稳定
+    // 将背景色从 'rgba(40, 42, 70, 1)' 改为与 SettingsScreen 一致的颜色
+    backgroundColor: 'rgba(46, 44, 70, 1)',  // 更新背景色为与 SettingsScreen 一致的颜色
+    minHeight: 180, // 保持最小高度不变
   },
   detailsCard: {
     marginHorizontal: 16,
-    marginBottom: 16, // 减小底部间距
+    marginBottom: 16,
+    backgroundColor: 'rgba(46, 44, 70, 1)',  // 添加一致的背景色
+    borderRadius: 16,  // 保持一致的圆角效果
+
+    // 其他可能的样式属性...
   },
   tokenSelectorWrapper: {
     width: '100%',
-    marginBottom: 12, // 减小底部间距
+    marginBottom: 12,
+    backgroundColor: 'transparent', // 保持透明背景
   },
   tokenSelector: {
     flexDirection: 'row',
@@ -2459,7 +2465,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
-    backgroundColor: 'rgba(30, 32, 60, 0.8)',
+    backgroundColor: 'rgba(36, 34, 60, 0.7)', // 添加比主背景深一点的紫色背景
+    // 可以考虑添加一个细边框使其更加突出
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)', // 添加微妙的亮边框
   },
   tokenLogo: {
     width: 32,

@@ -320,7 +320,6 @@ const RecommendedTokensList = ({ onSelectToken, walletId, chain, selectedToken }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(40, 42, 70, 0.8)',
     borderRadius: 16,
     padding: 10,
     paddingLeft: 0,

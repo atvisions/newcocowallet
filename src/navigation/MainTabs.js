@@ -105,7 +105,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
               break;
 
             case 'Settings':
-              iconName = isFocused ? 'settings' : 'settings-outline';
+              iconName = isFocused ? 'person-circle' : 'person-circle-outline';
               break;
           }
 
@@ -183,7 +183,7 @@ const TabScreens = () => {
         options={{
           tabBarIcon: ({ focused }) => (
             <Ionicons 
-              name={focused ? "settings" : "settings-outline"} 
+              name={focused ? "person-circle" : "person-circle-outline"}
               size={24} 
               color={focused ? "#1FC595" : "#8E8E8E"} 
             />

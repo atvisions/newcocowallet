@@ -25,6 +25,7 @@ import PrivateKeyDisplay from '../screens/wallet/PrivateKeyDisplay';
 import TokenDetailScreen from '../screens/TokenDetailScreen';
 import PaymentTokenList from '../screens/swap/PaymentTokenList';
 import ReceivingTokenList from '../screens/swap/ReceivingTokenList';
+import PointsHistoryScreen from '../screens/PointsHistoryScreen';
 
 const Stack = createStackNavigator();
 
@@ -95,6 +96,7 @@ const AppNavigator = () => {
           headerShown: false
         }}
       />
+      <Stack.Screen name="PointsHistory" component={PointsHistoryScreen} />
     </Stack.Navigator>
   );
 };

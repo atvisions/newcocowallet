@@ -11,17 +11,20 @@ import {
   StatusBar,
   Image,
   ActivityIndicator,
-  Modal
+  Modal,
+  Share,
+  Clipboard
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import { DeviceManager } from '../../utils/device';
 import Constants from 'expo-constants';
 import { useWallet } from '../../contexts/WalletContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Updates from 'expo-updates';
+import Toast, { ToastView } from '../../components/Toast';
 
 // Add this constant - increment it with each OTA update
 const BUILD_NUMBER = "1"; // This can be updated with OTA updates
@@ -169,14 +172,266 @@ const NoUpdatesModal = ({ visible, onClose }) => {
   );
 };
 
+// 优化积分详情模态框
+const PointsInfoModal = ({ visible, onClose }) => {
+  const rewardItems = [
+    {
+      id: 'invite',
+      icon: 'person-add-outline',
+      title: 'Invite friends to download',
+      points: 5,
+      color: '#4A6FFF'
+    },
+    {
+      id: 'wallet',
+      icon: 'wallet-outline',
+      title: 'Friend creates a wallet',
+      points: 5,
+      color: '#F7B84B'
+    }
+  ];
+
+  const benefitItems = [
+    {
+      id: 'airdrop',
+      icon: 'airplane-outline',
+      title: 'Exclusive Airdrops',
+      color: '#1FC595'
+    },
+    {
+      id: 'ai',
+      icon: 'flash-outline',
+      title: 'AI Token Rewards',
+      color: '#FF6B6B'
+    }
+  ];
+
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.pointsInfoModalContainer}>
+          <LinearGradient
+            colors={['#2A3352', '#171C32']}
+            style={styles.pointsInfoGradient}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalTitleContainer}>
+                <FontAwesome name="star" size={18} color="#F7B84B" style={{marginRight: 8}} />
+                <Text style={styles.modalTitle}>Coco Points</Text>
+              </View>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color="#8E8E8E" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.pointsInfoContent}>
+              <Text style={styles.infoSectionTitle}>How to Earn Points</Text>
+              
+              {rewardItems.map(item => (
+                <View key={item.id} style={styles.rewardRow}>
+                  <View style={styles.rewardLeftContent}>
+                    <Ionicons name={item.icon} size={18} color={item.color} style={{marginRight: 8}} />
+                    <Text style={styles.rewardText}>{item.title}</Text>
+                  </View>
+                  <View style={styles.pointsContainer}>
+                    <Text style={[styles.pointsText, {color: item.color}]}>+{item.points}</Text>
+                  </View>
+                </View>
+              ))}
+              
+              <Text style={[styles.infoSectionTitle, {marginTop: 20}]}>Point Benefits</Text>
+              
+              <View style={styles.benefitsRow}>
+                {benefitItems.map(item => (
+                  <View key={item.id} style={styles.benefitItem}>
+                    <Ionicons name={item.icon} size={20} color={item.color} style={{marginBottom: 6}} />
+                    <Text style={styles.benefitText}>{item.title}</Text>
+                  </View>
+                ))}
+              </View>
+              
+              <Text style={[styles.infoSectionTitle, {marginTop: 20}]}>Points Policy</Text>
+              <Text style={styles.policyText}>
+                • Points are awarded automatically when referrals complete required actions.
+              </Text>
+              <Text style={styles.policyText}>
+                • Each referral counts only once for each reward type.
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.doneButton} 
+              onPress={onClose}
+            >
+              <LinearGradient
+                colors={['#4A6FFF', '#2E5BFF']}
+                style={styles.doneButtonGradient}
+              >
+                <Text style={styles.doneButtonText}>Got It</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// 修改 ShareLinkItem 组件，并整合积分显示
+const PointsAndReferralCard = ({ setPointsInfoModalVisible, navigation }) => {
+  const [isLoadingPoints, setIsLoadingPoints] = useState(false);
+  const [referralLink, setReferralLink] = useState('');
+  const [copiedSuccess, setCopiedSuccess] = useState(false);
+  const [userPoints, setUserPoints] = useState(0);
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoadingPoints(true);
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        // 获取用户积分
+        const pointsResponse = await api.getPoints(deviceId);
+        if (pointsResponse.status === 'success') {
+          setUserPoints(pointsResponse.data.total_points || 0);
+        }
+        
+        // 获取推荐链接
+        const linkResponse = await api.getLink(deviceId);
+        if (linkResponse.status === 'success') {
+          const code = linkResponse.data.code || '';
+          const baseUrl = 'https://www.cocowallet.io';
+          setReferralLink(`${baseUrl}?ref=${code}`);
+        }
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setIsLoadingPoints(false);
+      }
+    };
+    
+    loadData();
+  }, []);
+  
+  // 复制到剪贴板并显示成功图标
+  const copyToClipboard = () => {
+    if (!referralLink) return;
+    
+    Clipboard.setString(referralLink);
+    setCopiedSuccess(true);
+    
+    // 2秒后重置图标
+    setTimeout(() => {
+      setCopiedSuccess(false);
+    }, 2000);
+  };
+  
+  // 分享链接
+  const handleShareReferralLink = async () => {
+    if (!referralLink) return;
+    
+    try {
+      await Share.share({
+        message: `Download Coco Wallet and get bonus points! ${referralLink}`,
+        url: referralLink, // iOS only
+        title: 'Coco Wallet Referral'
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+  
+  return (
+    <LinearGradient
+      colors={['#2E2C46', '#1A1C2E']}
+      start={{x: 0, y: 0}}
+      end={{x: 1, y: 1}}
+      style={styles.pointsReferralCard}
+    >
+      {/* 上半部分：积分展示 */}
+      <TouchableOpacity 
+        style={styles.pointsSection}
+        onPress={() => navigation.navigate('PointsHistory')}
+      >
+        <View style={styles.pointsHeader}>
+          <View style={styles.pointsTitleContainer}>
+            <FontAwesome name="star" size={16} color="#F7B84B" style={{marginRight: 8}} />
+            <Text style={styles.pointsCardTitle}>Coco Points</Text>
+          </View>
+          <TouchableOpacity 
+            onPress={() => setPointsInfoModalVisible(true)}
+            style={styles.infoButton}
+          >
+            <Ionicons name="information-circle-outline" size={20} color="#8E8E8E" />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.pointsValueContainer}>
+          <View style={styles.pointsValueWrapper}>
+            {isLoadingPoints ? (
+              <ActivityIndicator size="small" color="#F7B84B" />
+            ) : (
+              <Text style={styles.pointsValueText}>{userPoints}</Text>
+            )}
+          </View>
+          <View style={styles.viewHistoryButton}>
+            <Text style={styles.viewHistoryText}>View History</Text>
+            <Ionicons name="chevron-forward" size={14} color="#4A6FFF" />
+          </View>
+        </View>
+      </TouchableOpacity>
+      
+      {/* 分隔线 */}
+      <View style={styles.divider} />
+      
+      {/* 下半部分：分享链接 */}
+      <View style={styles.referralSection}>
+        <View style={styles.linkContainer}>
+          <Ionicons name="link" size={16} color="#8E8E8E" style={{marginRight: 8}} />
+          <Text 
+            style={styles.linkText}
+            numberOfLines={1}
+            ellipsizeMode="middle"
+          >
+            {isLoadingPoints ? '...' : referralLink}
+          </Text>
+        </View>
+        
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            onPress={copyToClipboard}
+            style={styles.actionButton}
+          >
+            {copiedSuccess ? (
+              <Ionicons name="checkmark-sharp" size={18} color="#1FC595" />
+            ) : (
+              <Ionicons name="copy-outline" size={18} color="#4A6FFF" />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={handleShareReferralLink}
+            style={styles.actionButton}
+          >
+            <Ionicons name="share-social-outline" size={18} color="#1FC595" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </LinearGradient>
+  );
+};
+
 export default function SettingsScreen({ navigation }) {
   const [hasPaymentPassword, setHasPaymentPassword] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [updateModalVisible, setUpdateModalVisible] = useState(false);
-  const [completeModalVisible, setCompleteModalVisible] = useState(false);
-  const [noUpdatesModalVisible, setNoUpdatesModalVisible] = useState(false);
   const { selectedWallet } = useWallet();
   const insets = useSafeAreaInsets();
+  const [pointsInfoModalVisible, setPointsInfoModalVisible] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -220,83 +475,76 @@ export default function SettingsScreen({ navigation }) {
     if (isCheckingUpdate) return;
     
     setIsCheckingUpdate(true);
+    
     try {
       console.log('Starting update check...');
-      console.log('Current runtime version:', Updates.runtimeVersion);
-      console.log('Is development build?', __DEV__);
-      console.log('Update configuration:', Updates.configuration);
       
-      // 检查是否在开发环境
-      if (__DEV__) {
-        console.log('In development mode, skipping update check');
-        Alert.alert(
-          "Development Mode",
-          "Update checking is only available in production builds.",
-          [{ text: "OK" }]
-        );
-        return;
-      }
-
-      console.log('Calling Updates.checkForUpdateAsync()...');
-      const update = await Updates.checkForUpdateAsync();
-      console.log('Update check result:', update);
-      console.log('Update available?', update.isAvailable);
-      
-      if (update.isAvailable) {
-        console.log('Update is available, showing modal');
-        setUpdateModalVisible(true);
-      } else {
-        console.log('No updates available');
-        setNoUpdatesModalVisible(true);
-      }
+      // Important: Ensure ToastView is rendered
+      setTimeout(() => {
+        // Check if in development environment
+        if (__DEV__) {
+          console.log('In development mode, skipping update check');
+          Toast.show("Update checking not available in dev mode", "info");
+          setIsCheckingUpdate(false);
+          return;
+        }
+        
+        // Update check logic
+        (async () => {
+          try {
+            Toast.show("Checking for updates...", "pending");
+            
+            const update = await Updates.checkForUpdateAsync();
+            console.log('Update check result:', update);
+            
+            if (update.isAvailable) {
+              console.log('Update is available');
+              Toast.hide();
+              Toast.show("Update available, downloading...", "pending");
+              
+              try {
+                await Updates.fetchUpdateAsync();
+                console.log('Update downloaded successfully');
+                Toast.hide();
+                Toast.show("Update ready to install", "success");
+                
+                setTimeout(() => {
+                  Alert.alert(
+                    "Update Ready",
+                    "The update has been downloaded. Restart now to apply the changes?",
+                    [
+                      { text: "Later", style: "cancel" },
+                      { text: "Restart Now", onPress: () => Updates.reloadAsync() }
+                    ]
+                  );
+                }, 2000);
+              } catch (error) {
+                console.error('Update download error:', error);
+                Toast.hide();
+                Toast.show("Failed to download update", "error");
+              }
+            } else {
+              console.log('No updates available');
+              Toast.hide();
+              Toast.show("You're already on the latest version", "success");
+            }
+          } catch (error) {
+            console.error('Update check error:', error);
+            Toast.hide();
+            Toast.show("Failed to check for updates", "error");
+          } finally {
+            setIsCheckingUpdate(false);
+          }
+        })();
+      }, 300); // Increased delay to ensure UI update
     } catch (error) {
-      console.error('Update check error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-        configuration: Updates.configuration
-      });
-      
-      if (!__DEV__) {
-        Alert.alert(
-          "Update Check Failed",
-          "Please try again later.",
-          [{ text: "OK" }]
-        );
-      }
-    } finally {
+      console.error('Unexpected error:', error);
+      Toast.hide();
+      Toast.show("An error occurred", "error");
       setIsCheckingUpdate(false);
     }
   };
-
-  const handleUpdate = async () => {
-    try {
-      console.log('Starting update download...');
-      setUpdateModalVisible(false);
-      await Updates.fetchUpdateAsync();
-      console.log('Update downloaded successfully');
-      setCompleteModalVisible(true);
-    } catch (error) {
-      console.error('Update download error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      Alert.alert(
-        "Update Failed",
-        "Please check your network and try again.",
-        [{ text: "OK" }]
-      );
-    }
-  };
-
-  const handleRestart = () => {
-    console.log('Restarting app to apply update...');
-    Updates.reloadAsync();
-  };
-
+  
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -334,11 +582,21 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        <ScrollView style={styles.content}>
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Rewards & Referrals</Text>
+            
+            {/* 使用新的合并卡片组件 */}
+            <PointsAndReferralCard 
+              setPointsInfoModalVisible={setPointsInfoModalVisible}
+              navigation={navigation}
+            />
+          </View>
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Security</Text>
             <TouchableOpacity 
-              style={styles.menuItem}
+              style={[styles.menuItem, { backgroundColor: 'rgba(46, 44, 70, 0.8)' }]}
               onPress={handleSetPaymentPassword}
             >
               <View style={styles.menuItemLeft}>
@@ -350,11 +608,6 @@ export default function SettingsScreen({ navigation }) {
                 </Text>
               </View>
               <View style={styles.menuItemRight}>
-                {hasPaymentPassword && (
-                  <View style={styles.checkmarkContainer}>
-                    <MaterialIcons name="check" size={16} color="#FFFFFF" />
-                  </View>
-                )}
                 <Ionicons name="chevron-forward" size={20} color="#8E8E8E" />
               </View>
             </TouchableOpacity>
@@ -363,7 +616,7 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About</Text>
             <TouchableOpacity 
-              style={styles.menuItem}
+              style={[styles.menuItem, { backgroundColor: 'rgba(46, 44, 70, 0.8)' }]}
               onPress={checkForUpdates}
               disabled={isCheckingUpdate}
             >
@@ -387,23 +640,15 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </ScrollView>
       </View>
-
-      {/* Custom modals */}
-      <UpdateModal 
-        visible={updateModalVisible}
-        onLater={() => setUpdateModalVisible(false)}
-        onUpdate={handleUpdate}
+      
+      {/* 积分信息模态框 */}
+      <PointsInfoModal
+        visible={pointsInfoModalVisible}
+        onClose={() => setPointsInfoModalVisible(false)}
       />
       
-      <UpdateCompleteModal
-        visible={completeModalVisible}
-        onRestart={handleRestart}
-      />
-
-      <NoUpdatesModal
-        visible={noUpdatesModalVisible}
-        onClose={() => setNoUpdatesModalVisible(false)}
-      />
+      {/* 在 SafeAreaView 的最后添加 ToastView */}
+      <ToastView />
     </SafeAreaView>
   );
 }
@@ -473,10 +718,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: 'rgba(46, 44, 70, 0.8)',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   menuItemLeft: {
     flexDirection: 'row',
@@ -503,14 +753,104 @@ const styles = StyleSheet.create({
     color: '#8E8E8E',
     marginRight: 8,
   },
-  checkmarkContainer: {
-    width: 24,
-    height: 24,
+  pointsReferralCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  pointsSection: {
+    padding: 18,
+    height: 110,
+  },
+  pointsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pointsTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pointsCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  infoButton: {
+    padding: 4,
+  },
+  pointsValueContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    height: 36,
+  },
+  pointsValueWrapper: {
+    minWidth: 50,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  pointsValueText: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    lineHeight: 36,
+  },
+  viewHistoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 111, 255, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: '#272C52',
+  },
+  viewHistoryText: {
+    fontSize: 12,
+    color: '#4A6FFF',
+    marginRight: 3,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginHorizontal: 12,
+  },
+  referralSection: {
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: 68,
+  },
+  linkContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  linkText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    flex: 1,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
+    marginLeft: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -579,5 +919,114 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  pointsInfoModalContainer: {
+    width: '85%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  pointsInfoGradient: {
+    width: '100%',
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pointsInfoContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  infoSectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  rewardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  rewardLeftContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  rewardText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  pointsContainer: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointsText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  benefitsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  benefitItem: {
+    width: '48%',
+    padding: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 10,
+  },
+  benefitText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  policyText: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  doneButton: {
+    marginTop: 12,
+    marginHorizontal: 20,
+    height: 44,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  doneButtonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  doneButtonText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
 });

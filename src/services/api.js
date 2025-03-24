@@ -991,6 +991,184 @@ export const api = {
       throw error;
     }
   },
+
+  // 获取用户积分
+  async getPoints(deviceId) {
+    try {
+      if (!deviceId) {
+        throw new Error('Device ID is required');
+      }
+      
+      const response = await axiosInstance.get('/referrals/get_points/', {
+        params: { device_id: deviceId }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch user points:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to fetch points',
+        data: { total_points: 0 }
+      };
+    }
+  },
+  
+  // 获取积分历史
+  async getPointsHistory(deviceId, page = 1, pageSize = 10) {
+    try {
+      const response = await axiosInstance.get(
+        `/referrals/get_points_history/`, 
+        {
+          params: {
+            device_id: deviceId,
+            page: page,
+            page_size: pageSize
+          }
+        }
+      );
+      
+      if (response.data) {
+        return {
+          success: true,
+          data: response.data,
+          message: 'Points history retrieved successfully'
+        };
+      }
+      
+      return {
+        success: false,
+        message: 'Failed to retrieve points history'
+      };
+    } catch (error) {
+      console.error('API Error - getPointsHistory:', error);
+      return {
+        success: false,
+        message: error.message || 'An error occurred while fetching points history'
+      };
+    }
+  },
+  
+  // 获取推荐链接
+  async getLink(deviceId) {
+    try {
+      if (!deviceId) {
+        throw new Error('Device ID is required');
+      }
+      
+      const response = await axiosInstance.get('/referrals/get_link/', {
+        params: { device_id: deviceId }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get referral link:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to get referral link',
+        data: { code: '', url: '' }
+      };
+    }
+  },
+  
+  // 获取推荐统计数据
+  async getReferralStats(deviceId) {
+    try {
+      if (!deviceId) {
+        throw new Error('Device ID is required');
+      }
+      
+      const response = await axiosInstance.get('/referrals/get_stats/', {
+        params: { device_id: deviceId }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get referral stats:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to get referral statistics',
+        data: { 
+          total_referrals: 0,
+          completed_referrals: 0,
+          pending_referrals: 0,
+          total_points: 0,
+          download_points: 0,
+          wallet_points: 0
+        }
+      };
+    }
+  },
+  
+  // 获取推荐记录
+  async getReferrals(deviceId, page = 1, pageSize = 10) {
+    try {
+      if (!deviceId) {
+        throw new Error('Device ID is required');
+      }
+      
+      const response = await axiosInstance.get('/referrals/get_referrals/', {
+        params: { 
+          device_id: deviceId,
+          page,
+          page_size: pageSize
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get referrals:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to get referral records',
+        data: { total: 0, results: [] }
+      };
+    }
+  },
+  
+  // 记录网页下载（通常在前端网页使用，但为完整性添加）
+  async recordWebDownload(referrerCode, deviceId) {
+    try {
+      if (!referrerCode || !deviceId) {
+        throw new Error('Referrer code and device ID are required');
+      }
+      
+      const response = await axiosInstance.post('/referrals/record_web_download/', {
+        referrer_code: referrerCode,
+        device_id: deviceId
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to record download:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to record download'
+      };
+    }
+  },
+  
+  // 记录访问（通常在前端网页使用，但为完整性添加）
+  async recordVisit(referrerCode, deviceId) {
+    try {
+      if (!referrerCode || !deviceId) {
+        throw new Error('Referrer code and device ID are required');
+      }
+      
+      const response = await axiosInstance.post('/referrals/record_visit/', {
+        referrer_code: referrerCode,
+        device_id: deviceId
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Failed to record visit:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Failed to record visit'
+      };
+    }
+  },
 };
 
 export const setPaymentPassword = async (deviceId, password) => {
