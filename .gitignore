@@ -8,6 +8,12 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+*.apk
+*.ipa
+*.app
+*.appx
+*.appxbundle
+*.appxupload
 
 # Native
 *.orig.*
