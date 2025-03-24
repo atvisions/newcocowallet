@@ -67,13 +67,13 @@
     "updates": {
       "enabled": true,
       "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/95917907-e15f-48be-92a3-012b879c0b76",
+      "url": "https://u.expo.dev/c1811013-1c1c-45fd-95bb-5ab451dd3ab6",
       "channel": "production"
     },
     "runtimeVersion": "1.0.0",
     "extra": {
       "eas": {
-        "projectId": "95917907-e15f-48be-92a3-012b879c0b76"
+        "projectId": "c1811013-1c1c-45fd-95bb-5ab451dd3ab6"
       }
     }
   }
