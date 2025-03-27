@@ -26,7 +26,11 @@
       "bundleIdentifier": "com.cocowallet.cocowallet",
       "icon": "./assets/icon.png",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": [
+          "twitter",
+          "twitterauth"
+        ]
       }
     },
     "android": {
@@ -45,6 +49,24 @@
       "versionCode": 2,
       "networkSecurityConfig": {
         "cleartextTrafficPermitted": true
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "twitter",
+              "host": "*"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
+      "queries": {
+        "packages": [
+          "com.twitter.android"
+        ]
       }
     },
     "web": {

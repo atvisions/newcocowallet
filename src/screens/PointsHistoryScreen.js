@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -26,6 +26,7 @@ const PointsHistoryScreen = ({ navigation }) => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const insets = useSafeAreaInsets();
+  const [isLoadingRef] = useState({ current: false });
 
   useEffect(() => {
     loadPointsHistory();
@@ -57,46 +58,39 @@ const PointsHistoryScreen = ({ navigation }) => {
       }
       
       // 获取积分历史
-      const historyResponse = await api.getPointsHistory(deviceId, currentPage, 10);
-      console.log('Points history raw response:', historyResponse);
+      const response = await api.getPointsHistory(deviceId, currentPage, 10);
+      console.log('Points history response:', {
+        status: response.data.status,
+        items: response.data.data.items,
+        total: response.data.data.total,
+        pages: response.data.data.pages,
+        currentPage: response.data.data.current_page
+      });
       
-      // 添加数据结构检查和处理
-      let validResults = [];
-      let total = 0;
-      
-      if (historyResponse.success && historyResponse.data) {
-        // 检查不同的数据结构可能性
-        if (historyResponse.data.results) {
-          // 直接包含结果的情况
-          validResults = historyResponse.data.results;
-          total = historyResponse.data.total;
-        } else if (historyResponse.data.data?.results) {
-          // 嵌套在 data 中的情况
-          validResults = historyResponse.data.data.results;
-          total = historyResponse.data.data.total;
-        } else if (Array.isArray(historyResponse.data)) {
-          // 直接是数组的情况
-          validResults = historyResponse.data;
-          total = validResults.length;
+      if (response.data.status === 'success' && response.data.data) {
+        const { items, total, pages, current_page } = response.data.data;
+        
+        if (Array.isArray(items)) {
+          if (isRefresh) {
+            // 刷新时直接替换数据
+            setHistoryData(items);
+          } else {
+            // 加载更多时追加数据，使用函数形式避免闭包问题
+            setHistoryData(prevData => {
+              // 检查是否有重复数据
+              const newItems = items.filter(newItem => 
+                !prevData.some(existingItem => 
+                  existingItem.created_at === newItem.created_at && 
+                  existingItem.action_type === newItem.action_type
+                )
+              );
+              return [...prevData, ...newItems];
+            });
+          }
+          
+          setHasMore(current_page < pages);
+          setPage(current_page + 1);
         }
-        
-        // 确保结果是数组
-        validResults = Array.isArray(validResults) ? validResults : [];
-        
-        // 打印处理后的数据
-        console.log('Processed history data:', {
-          results: validResults,
-          total: total
-        });
-        
-        if (isRefresh) {
-          setHistoryData(validResults);
-        } else {
-          setHistoryData(prevData => [...prevData, ...validResults]);
-        }
-        
-        setHasMore(currentPage * 10 < total);
-        setPage(currentPage + 1);
       }
     } catch (error) {
       console.error('Failed to load points history:', error);
@@ -106,9 +100,19 @@ const PointsHistoryScreen = ({ navigation }) => {
     }
   };
 
-  const onRefresh = () => {
-    loadPointsHistory(true);
-  };
+  const onRefresh = useCallback(async () => {
+    // 防止重复请求
+    if (isLoadingRef.current || refreshing) {
+      return;
+    }
+    
+    isLoadingRef.current = true;
+    try {
+      await loadPointsHistory(true);
+    } finally {
+      isLoadingRef.current = false;
+    }
+  }, [refreshing]);
 
   const handleLoadMore = () => {
     if (!loading && hasMore) {
@@ -116,16 +120,58 @@ const PointsHistoryScreen = ({ navigation }) => {
     }
   };
 
+  // 创建一个独立的图标组件
+  const ActionIcon = ({ name, color }) => (
+    <View style={styles.historyIconContainer}>
+      <Text>
+        <Ionicons name={name} size={20} color={color} />
+      </Text>
+    </View>
+  );
+
+  // 修改 renderActionIcon 函数
   const renderActionIcon = (actionType) => {
+    const iconConfig = {
+      name: getIconName(actionType),
+      color: getIconColor(actionType)
+    };
+    
+    return <ActionIcon {...iconConfig} />;
+  };
+
+  const getIconName = (actionType) => {
     switch(actionType) {
       case 'DOWNLOAD_REFERRAL':
-        return <Ionicons name="download-outline" size={20} color="#4A6FFF" />;
+        return "download-outline";
       case 'WALLET_CREATION_REFERRAL':
-        return <Ionicons name="wallet-outline" size={20} color="#F7B84B" />;
+        return "wallet-outline";
       case 'SHARE_TOKEN':
-        return <Ionicons name="share-social-outline" size={20} color="#1FC595" />;
+        return "share-social-outline";
+      case 'FIRST_TRANSFER':
+        return "paper-plane-outline";
+      case 'FIRST_SWAP':
+        return "swap-horizontal-outline";
+      case 'DAILY_CHECK_IN':
+        return "calendar-outline";
+      case 'TASK_COMPLETE':
       default:
-        return <Ionicons name="star-outline" size={20} color="#1FC595" />;
+        return "star-outline";
+    }
+  };
+
+  const getIconColor = (actionType) => {
+    switch(actionType) {
+      case 'DOWNLOAD_REFERRAL':
+      case 'FIRST_TRANSFER':
+        return "#4A6FFF";
+      case 'WALLET_CREATION_REFERRAL':
+      case 'FIRST_SWAP':
+        return "#F7B84B";
+      case 'SHARE_TOKEN':
+      case 'DAILY_CHECK_IN':
+      case 'TASK_COMPLETE':
+      default:
+        return "#1FC595";
     }
   };
 
@@ -148,49 +194,84 @@ const PointsHistoryScreen = ({ navigation }) => {
         return 'Wallet Creation';
       case 'SHARE_TOKEN':
         return 'Token Share';
+      case 'FIRST_TRANSFER':
+        return 'First Transfer';
+      case 'FIRST_SWAP':
+        return 'First Swap';
+      case 'DAILY_CHECK_IN':
+        return 'Daily Check-in';
+      case 'TASK_COMPLETE':
+        return 'Task Completed';
       default:
         return 'Points Earned';
     }
   };
 
   const getDescriptionText = (description, actionType) => {
-    if (!description) {
-      switch(actionType) {
-        case 'DOWNLOAD_REFERRAL':
-          return 'Someone downloaded the app using your referral link';
-        case 'WALLET_CREATION_REFERRAL':
-          return 'Someone created a wallet using your referral';
-        default:
-          return 'Points earned from referral activity';
+    // 如果是 "Completed task: XXX" 或 "完成任务：XXX" 格式，提取任务名称
+    if (description) {
+      const match = description.match(/Completed task: (.*)|完成任务：(.*)/);
+      if (match) {
+        return match[1] || match[2];  // 返回捕获的任务名称
       }
+      return description;
     }
     
-    // 从 "User web_4bd03106 downloaded app" 截取用户ID部分
-    if (description.includes("User") && description.includes("downloaded app")) {
-      const userId = description.split(" ")[1];
-      return `User ${userId.substring(0, 8)}... downloaded app`;
+    // 默认描述
+    switch(actionType) {
+      case 'DAILY_CHECK_IN':
+        return 'Daily check-in reward';
+      case 'FIRST_TRANSFER':
+        return 'First transfer completed';
+      case 'FIRST_SWAP':
+        return 'First swap completed';
+      case 'SHARE_TOKEN':
+        return 'Token share reward';
+      default:
+        return 'Task completed';
     }
-    
-    return description;
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.historyItem}>
-      <View style={styles.historyIconContainer}>
-        {renderActionIcon(item.action_type)}
+  const getActualTaskType = (description, actionType) => {
+    if (actionType !== 'TASK_COMPLETE') return actionType;
+    
+    // 从描述中解析任务类型
+    if (description.includes('Daily Check-in') || description.includes('每日签到')) {
+      return 'DAILY_CHECK_IN';
+    }
+    if (description.includes('First Transfer') || description.includes('首次转账')) {
+      return 'FIRST_TRANSFER';
+    }
+    if (description.includes('First Swap') || description.includes('首次兑换')) {
+      return 'FIRST_SWAP';
+    }
+    if (description.includes('Share Token') || description.includes('分享代币')) {
+      return 'SHARE_TOKEN';
+    }
+    
+    return actionType;
+  };
+
+  // 修改 renderItem 函数
+  const renderItem = ({ item }) => {
+    const actualTaskType = getActualTaskType(item.description, item.action_type);
+    
+    return (
+      <View style={styles.historyItem}>
+        {renderActionIcon(actualTaskType)}
+        <View style={styles.historyContent}>
+          <Text style={styles.historyTitle}>
+            {getActionTitle(actualTaskType, item.action_display)}
+          </Text>
+          <Text style={styles.historyDescription}>
+            {getDescriptionText(item.description, actualTaskType)}
+          </Text>
+          <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
+        </View>
+        <Text style={styles.historyPoints}>+{item.points}</Text>
       </View>
-      <View style={styles.historyContent}>
-        <Text style={styles.historyTitle}>
-          {getActionTitle(item.action_type, item.action_display)}
-        </Text>
-        <Text style={styles.historyDescription}>
-          {getDescriptionText(item.description, item.action_type)}
-        </Text>
-        <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
-      </View>
-      <Text style={styles.historyPoints}>+{item.points}</Text>
-    </View>
-  );
+    );
+  };
 
   const renderFooter = () => {
     if (!loading || refreshing) return null;
@@ -203,12 +284,13 @@ const PointsHistoryScreen = ({ navigation }) => {
 
   const renderEmptyComponent = () => {
     if (loading) return null;
+    
     return (
       <View style={styles.emptyContainer}>
         <Ionicons name="star-outline" size={40} color="#8E8E8E" />
         <Text style={styles.emptyText}>No points history yet</Text>
         <Text style={styles.emptySubText}>
-          Invite friends to download the app and earn points!
+          Complete tasks to earn points!
         </Text>
       </View>
     );
@@ -261,6 +343,7 @@ const PointsHistoryScreen = ({ navigation }) => {
                   onRefresh={onRefresh}
                   tintColor="#4A6FFF"
                   colors={['#4A6FFF']}
+                  enabled={!isLoadingRef.current}
                 />
               }
               onEndReached={handleLoadMore}
@@ -420,6 +503,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  iconText: {
+    height: 20,  // 确保图标容器有固定高度
+    lineHeight: 20,  // 与高度相同，确保垂直居中
+    textAlign: 'center',  // 水平居中
+  }
 });
 
 export default PointsHistoryScreen; 

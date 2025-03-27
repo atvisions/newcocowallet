@@ -286,6 +286,44 @@ const PointsInfoModal = ({ visible, onClose }) => {
   );
 };
 
+// 添加任务说明模态框组件
+const TaskInfoModal = ({ visible, onClose, task }) => {
+  return (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.taskInfoModalContainer}>
+          <LinearGradient
+            colors={['#2A3352', '#171C32']}
+            style={styles.taskInfoGradient}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalTitleContainer}>
+                <Text style={styles.modalTitle}>{task?.name}</Text>
+              </View>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color="#8E8E8E" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.taskInfoContent}>
+              <Text style={styles.taskDescription}>{task?.description}</Text>
+              <View style={styles.taskRewardContainer}>
+                <FontAwesome name="star" size={14} color="#F7B84B" style={{marginRight: 6}} />
+                <Text style={styles.taskRewardText}>Reward: {task?.points} points</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // 修改 ShareLinkItem 组件，并整合积分显示
 const PointsAndReferralCard = ({ 
   setPointsInfoModalVisible, 
@@ -447,46 +485,277 @@ const PointsAndReferralCard = ({
 };
 
 // 修改为任务卡片组件
-const TasksCard = ({ navigation, tasks = [], shareTasks = [], refreshing }) => {
-  // 任务类型对应的图标和颜色
-  const taskIcons = {
-    DAILY_CHECK_IN: {
-      icon: "calendar-check-o",
-      color: "#1FC595",
-      iconFamily: "FontAwesome"
-    },
-    FIRST_TRANSFER: {
-      icon: "paper-plane",
-      color: "#4A6FFF",
-      iconFamily: "FontAwesome"
-    },
-    FIRST_SWAP: {
-      icon: "swap-horizontal",
-      color: "#F7B84B",
-      iconFamily: "Ionicons"
-    },
-    INVITE_DOWNLOAD: {
-      icon: "person-add",
-      color: "#FF6B6B",
-      iconFamily: "Ionicons"
-    },
-    SHARE_TOKEN: {
-      icon: "share-social",
-      color: "#5856D6",
-      iconFamily: "Ionicons"
+const TasksCard = ({ navigation, tasks = [], refreshing, onRefresh }) => {
+  const [showTaskInfo, setShowTaskInfo] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+
+  // 修改renderTaskIcon函数
+  const renderTaskIcon = (taskCode, task) => {
+    if (taskCode === 'DAILY_CHECK_IN') {
+      return (
+        <View style={[styles.taskIconContainer, { backgroundColor: '#1FC59520' }]}>
+          <Ionicons name="calendar" size={20} color="#1FC595" />
+        </View>
+      );
+    } else if (taskCode === 'SHARE_TOKEN' && task?.token_data) {
+      return (
+        <View style={[styles.taskIconContainer, { backgroundColor: '#4A6FFF20' }]}>
+          <Image 
+            source={{ uri: task.token_data.token_logo }} 
+            style={styles.tokenLogo}
+            defaultSource={defaultTokenImage}
+          />
+        </View>
+      );
+    }
+    
+    return (
+      <View style={[styles.taskIconContainer, { backgroundColor: '#F7B84B20' }]}>
+        <FontAwesome name="star" size={20} color="#F7B84B" />
+      </View>
+    );
+  };
+
+  // 修改renderTaskButton函数
+  const renderTaskButton = (task) => {
+    const isCompleted = task.is_completed;
+    const isDisabled = !task.is_active;
+    
+    // 根据任务类型和状态返回不同的按钮配置
+    const getButtonConfig = () => {
+      // 分享代币任务
+      if (task.code === 'SHARE_TOKEN') {
+        if (isCompleted) {
+          return {
+            text: 'Done',
+            colors: ['#1FC595', '#18A67E'],
+            icon: <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+          };
+        }
+        if (!task.is_active) {
+          return {
+            text: 'Coming Soon',
+            colors: ['#8E8E8E', '#666666'],
+            icon: null
+          };
+        }
+        return {
+          text: 'Retweet',
+          colors: ['#4A6FFF', '#2E5BFF'],
+          icon: <Ionicons name="logo-twitter" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+        };
+      }
+      
+      // 每日签到任务
+      if (task.code === 'DAILY_CHECK_IN') {
+        if (isCompleted) {
+          return {
+            text: 'Done',
+            colors: ['#1FC595', '#18A67E'],
+            icon: <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+          };
+        }
+        if (!task.is_active) {
+          return {
+            text: 'Coming Soon',
+            colors: ['#8E8E8E', '#666666'],
+            icon: null
+          };
+        }
+        return {
+          text: 'Claim',
+          colors: ['#4A6FFF', '#2E5BFF'],
+          icon: null
+        };
+      }
+
+      // 首次转账任务
+      if (task.code === 'FIRST_TRANSFER') {
+        if (isCompleted) {
+          return {
+            text: 'Done',
+            colors: ['#1FC595', '#18A67E'],
+            icon: <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+          };
+        }
+        return {
+          text: 'Go Transfer',
+          colors: ['#4A6FFF', '#2E5BFF'],
+          icon: null
+        };
+      }
+
+      // 首次Swap任务
+      if (task.code === 'FIRST_SWAP') {
+        if (isCompleted) {
+          return {
+            text: 'Done',
+            colors: ['#1FC595', '#18A67E'],
+            icon: <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+          };
+        }
+        return {
+          text: 'Go Swap',
+          colors: ['#4A6FFF', '#2E5BFF'],
+          icon: null
+        };
+      }
+      
+      // 默认按钮样式
+      if (isCompleted) {
+        return {
+          text: 'Done',
+          colors: ['#1FC595', '#18A67E'],
+          icon: <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{marginRight: 4}} />
+        };
+      }
+      if (!task.is_active) {
+        return {
+          text: 'Coming Soon',
+          colors: ['#8E8E8E', '#666666'],
+          icon: null
+        };
+      }
+      return {
+        text: 'Complete',
+        colors: ['#4A6FFF', '#2E5BFF'],
+        icon: null
+      };
+    };
+
+    const buttonConfig = getButtonConfig();
+    const isButtonDisabled = isDisabled || isCompleted;
+
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.taskButton,
+          isButtonDisabled ? styles.taskButtonDisabled : null,
+          isCompleted ? styles.taskButtonCompleted : null
+        ]}
+        disabled={isButtonDisabled}
+        onPress={() => handleTaskAction(task)}
+      >
+        <LinearGradient
+          colors={buttonConfig.colors}
+          style={styles.taskButtonGradient}
+        >
+          <View style={styles.taskButtonContent}>
+            {buttonConfig.icon}
+            <Text style={styles.taskButtonText}>{buttonConfig.text}</Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  };
+
+  // 修改handleTaskAction函数来处理新的任务类型
+  const handleTaskAction = async (task) => {
+    switch (task.code) {
+      case 'DAILY_CHECK_IN':
+        handleDailyCheckIn();
+        break;
+      case 'SHARE_TOKEN':
+        handleShareToken(task);
+        break;
+      case 'FIRST_TRANSFER':
+        navigation.navigate('Send');
+        break;
+      case 'FIRST_SWAP':
+        // 先检查任务状态
+        const deviceId = await DeviceManager.getDeviceId();
+        const taskStatus = await api.checkTaskStatus(deviceId, 'FIRST_SWAP');
+        
+        if (taskStatus?.data?.is_completed) {
+          // 如果后端显示任务已完成，刷新列表
+          onRefresh();
+        } else {
+          // 否则导航到 Swap 页面
+          navigation.navigate('Swap');
+        }
+        break;
+      default:
+        console.log('未知任务类型:', task.code);
     }
   };
 
-  // 渲染任务图标
-  const renderTaskIcon = (taskCode) => {
-    const iconConfig = taskIcons[taskCode] || taskIcons.SHARE_TOKEN;
-    const IconComponent = iconConfig.iconFamily === "Ionicons" ? Ionicons : FontAwesome;
-    
-    return (
-      <View style={[styles.taskIconContainer, { backgroundColor: `${iconConfig.color}20` }]}>
-        <IconComponent name={iconConfig.icon} size={20} color={iconConfig.color} />
-      </View>
-    );
+  // 处理每日签到
+  const handleDailyCheckIn = async () => {
+    try {
+      const deviceId = await DeviceManager.getDeviceId();
+      const response = await api.dailyCheckIn(deviceId);
+      
+      if (response.status === 'success') {
+        Toast.show(response.message, 'success');
+        onRefresh(); // 刷新任务列表和积分
+      } else {
+        Toast.show(response.message || '签到失败，请稍后重试', 'error');
+      }
+    } catch (error) {
+      console.error('签到失败:', error);
+      Toast.show('签到失败，请稍后重试', 'error');
+    }
+  };
+
+  // 修改 handleShareToken 函数
+  const handleShareToken = async (task) => {
+    try {
+      const deviceId = await DeviceManager.getDeviceId();
+      
+      // 1. 检查是否有官方推文ID
+      const officialTweetId = task.token_data?.official_tweet_id;
+      if (!officialTweetId) {
+        Toast.show('Invalid tweet ID', 'error');
+        return;
+      }
+
+      // 2. 构建引用推文的文本和URL
+      const tweetText = encodeURIComponent(
+        `Check out ${task.token_data.token_name} ($${task.token_data.token_symbol}) on Coco Wallet! 🚀\n#cocoswap`
+      );
+      
+      // 使用 quote tweet URL 格式
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${tweetText}&url=https://twitter.com/i/status/${officialTweetId}`;
+
+      try {
+        // 3. 打开 Twitter 进行引用转发
+        await Linking.openURL(twitterUrl);
+
+        // 4. 验证分享
+        setTimeout(async () => {
+          try {
+            const response = await api.verifyShare({
+              device_id: deviceId,
+              token_address: task.token_data.token_address,
+              tweet_id: officialTweetId
+            });
+
+            if (response?.status === 'success') {
+              Toast.show(`Share successful! Earned ${response.data.points_awarded} points`, 'success');
+              onRefresh();
+            } else {
+              Toast.show(response?.message || 'Share verification failed', 'error');
+            }
+          } catch (error) {
+            console.log('Share verification failed:', error);
+            // 不要在用户取消分享时显示错误提示
+            if (error?.response?.status !== 400) {
+              Toast.show('Share verification failed', 'error');
+            }
+          }
+        }, 5000);
+
+      } catch (error) {
+        // 不要在用户取消分享时显示错误提示
+        if (!error.message.includes('cancel')) {
+          Toast.show('Failed to open Twitter', 'error');
+        }
+      }
+
+    } catch (error) {
+      console.log('Share failed:', error);
+      Toast.show('Share failed', 'error');
+    }
   };
 
   return (
@@ -505,100 +774,97 @@ const TasksCard = ({ navigation, tasks = [], shareTasks = [], refreshing }) => {
         <ActivityIndicator color="#4A6FFF" style={{padding: 20}} />
       ) : (
         <View style={styles.taskList}>
-          {/* 普通任务 */}
-          {tasks.map((task, index) => (
-            <View key={`task-${index}`} style={styles.taskItem}>
-              {renderTaskIcon(task.code)}
+          {/* 每日签到任务 */}
+          {tasks.find(task => task.code === 'DAILY_CHECK_IN') && (
+            <View style={styles.taskItem}>
+              {renderTaskIcon('DAILY_CHECK_IN')}
               <View style={styles.taskContent}>
                 <View style={styles.taskInfo}>
-                  <Text style={styles.taskName}>{task.name}</Text>
-                  <Text style={styles.taskDescription}>{task.description}</Text>
-                  <View style={styles.pointsContainer}>
-                    <FontAwesome name="star" size={12} color="#F7B84B" style={{marginRight: 4}} />
-                    <Text style={styles.taskPoints}>+{task.points}</Text>
-                  </View>
-                </View>
-                <View style={styles.taskStatus}>
-                  {task.is_completed ? (
-                    <View style={styles.completedBadge}>
-                      <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                      <Text style={styles.completedText}>Done</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.taskButton}
+                  <View style={styles.taskNameContainer}>
+                    <Text style={styles.taskName}>Daily Check-in</Text>
+                    <TouchableOpacity 
                       onPress={() => {
-                        // 根据任务类型导航到不同页面
-                        switch(task.code) {
-                          case 'FIRST_SWAP':
-                            navigation.navigate('Swap');
-                            break;
-                          case 'FIRST_TRANSFER':
-                            navigation.navigate('Send');
-                            break;
-                          case 'INVITE_DOWNLOAD':
-                            // 处理邀请分享
-                            break;
-                          default:
-                            // 其他任务处理
-                        }
+                        setSelectedTask(tasks.find(task => task.code === 'DAILY_CHECK_IN'));
+                        setShowTaskInfo(true);
                       }}
+                      style={styles.infoButton}
                     >
-                      <LinearGradient
-                        colors={['#4A6FFF', '#2E5BFF']}
-                        style={styles.taskButtonGradient}
-                      >
-                        <Text style={styles.taskButtonText}>Go</Text>
-                      </LinearGradient>
+                      <Ionicons name="information-circle-outline" size={16} color="#8E8E8E" />
                     </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            </View>
-          ))}
-
-          {/* 分享任务 */}
-          {shareTasks.map((task, index) => (
-            <View key={`share-${index}`} style={styles.taskItem}>
-              {renderTaskIcon('SHARE_TOKEN')}
-              <View style={styles.taskContent}>
-                <View style={styles.taskInfo}>
-                  <Text style={styles.taskName}>Share {task.token_symbol}</Text>
-                  <Text style={styles.taskDescription}>
-                    Share {task.token_name} on social media
-                  </Text>
+                  </View>
                   <View style={styles.pointsContainer}>
                     <FontAwesome name="star" size={12} color="#F7B84B" style={{marginRight: 4}} />
-                    <Text style={styles.taskPoints}>+{task.points}</Text>
-                    {task.today_shared > 0 && (
+                    <Text style={styles.taskPoints}>+{tasks.find(task => task.code === 'DAILY_CHECK_IN').points}</Text>
+                    {tasks.find(task => task.code === 'DAILY_CHECK_IN').today_count !== undefined && (
                       <Text style={styles.sharedCount}>
-                        · {task.today_shared}/{task.daily_limit} today
+                        ({tasks.find(task => task.code === 'DAILY_CHECK_IN').today_count}/
+                        {tasks.find(task => task.code === 'DAILY_CHECK_IN').daily_limit})
                       </Text>
                     )}
                   </View>
                 </View>
-                <TouchableOpacity
-                  style={[
-                    styles.shareButton,
-                    !task.can_share && styles.shareButtonDisabled
-                  ]}
-                  onPress={() => handleShare(task)}
-                  disabled={!task.can_share}
-                >
-                  <LinearGradient
-                    colors={task.can_share ? ['#4A6FFF', '#2E5BFF'] : ['#4A6FFF80', '#2E5BFF80']}
-                    style={styles.shareButtonGradient}
-                  >
-                    <Text style={styles.shareButtonText}>
-                      {task.can_share ? 'Share' : 'Done'}
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
+                {renderTaskButton(tasks.find(task => task.code === 'DAILY_CHECK_IN'))}
+              </View>
+            </View>
+          )}
+
+          {/* 其他任务 - 过滤掉已完成的非重复性任务和邀请好友任务 */}
+          {tasks.filter(task => {
+            // 保留以下任务：
+            // 1. 未完成的任务
+            // 2. 可重复的任务（is_repeatable 为 true）
+            // 3. 不是每日签到任务
+            // 4. 不是邀请好友任务
+            // 5. 不是已完成的首次转账和首次Swap任务
+            return (
+              (!task.is_completed || task.is_repeatable) && 
+              task.code !== 'DAILY_CHECK_IN' &&
+              task.code !== 'INVITE_DOWNLOAD' &&  // 添加这个条件
+              !(task.is_completed && (task.code === 'FIRST_SWAP' || task.code === 'FIRST_TRANSFER'))
+            );
+          }).map((task, index) => (
+            <View key={`task-${index}`} style={styles.taskItem}>
+              {renderTaskIcon(task.code, task)}
+              <View style={styles.taskContent}>
+                <View style={styles.taskInfo}>
+                  <View style={styles.taskNameContainer}>
+                    <Text style={styles.taskName}>{task.name}</Text>
+                    <TouchableOpacity 
+                      onPress={() => {
+                        setSelectedTask(task);
+                        setShowTaskInfo(true);
+                      }}
+                      style={styles.infoButton}
+                    >
+                      <Ionicons name="information-circle-outline" size={16} color="#8E8E8E" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.pointsContainer}>
+                    <FontAwesome name="star" size={12} color="#F7B84B" style={{marginRight: 4}} />
+                    <Text style={styles.taskPoints}>+{task.points}</Text>
+                    {task.today_count !== undefined && (
+                      <Text style={styles.sharedCount}>
+                        ({task.today_count}/{task.daily_limit})
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                {renderTaskButton(task)}
               </View>
             </View>
           ))}
         </View>
       )}
+
+      {/* 任务说明模态框 */}
+      <TaskInfoModal 
+        visible={showTaskInfo}
+        onClose={() => {
+          setShowTaskInfo(false);
+          setSelectedTask(null);
+        }}
+        task={selectedTask}
+      />
     </LinearGradient>
   );
 };
@@ -741,64 +1007,113 @@ const SettingsScreen = ({ navigation }) => {
     }
   };
   
-  // 处理下拉刷新
+  // 将函数移到组件内部
+  const enrichShareTasksWithTokenInfo = useCallback(async (tasks) => {
+    try {
+      if (!selectedWallet?.id) {
+        console.log('No wallet selected, returning original tasks');
+        return tasks;
+      }
+
+      // 获取所有需要的代币地址
+      const tokenAddresses = tasks.map(task => task.token_address);
+      
+      // 获取代币信息
+      const deviceId = await DeviceManager.getDeviceId();
+      const response = await api.getTokensManagement(
+        selectedWallet.id,
+        deviceId,
+        'solana'
+      );
+
+      if (response?.status === 'success' && response.data?.data?.tokens) {
+        const tokensMap = response.data.data.tokens.reduce((acc, token) => {
+          acc[token.address] = token;
+          return acc;
+        }, {});
+
+        // 补充代币信息
+        return tasks.map(task => ({
+          ...task,
+          token: tokensMap[task.token_address] || task.token || {
+            logo: task.token_logo,
+            symbol: task.token_symbol,
+            name: task.token_name
+          }
+        }));
+      }
+      
+      return tasks;
+    } catch (error) {
+      console.error('Failed to enrich share tasks:', error);
+      return tasks;
+    }
+  }, [selectedWallet?.id]); // 添加依赖
+
+  // 修改 onRefresh 函数
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     
     try {
       const deviceId = await DeviceManager.getDeviceId();
       
-      // 并行请求所需数据
-      const [
-        pointsResult,
-        statsResult,
-        linkResult,
-        passwordStatus,
-        tasksResult,
-        shareTasksResult
-      ] = await Promise.all([
-        // 获取用户积分
+      // 获取积分和任务数据
+      const [pointsResult, tasksResult, shareTasksResult] = await Promise.all([
         api.getPoints(deviceId),
-        
-        // 获取推荐统计信息
-        api.getReferralStats(deviceId),
-        
-        // 获取推荐链接
-        api.getLink(deviceId),
-        
-        // 检查支付密码状态
-        checkPaymentPasswordStatus(),
-
-        // 获取任务列表
         api.getTasks(deviceId),
-
-        // 获取分享任务列表
         api.getShareTasks(deviceId)
       ]);
 
-      // 更新状态
-      if (tasksResult?.status === 'success') {
-        setTasks(tasksResult.data);
+      if (pointsResult?.status === 'success') {
+        setUserPoints(pointsResult.data.total_points || 0);
       }
-      if (shareTasksResult?.status === 'success') {
-        setShareTasks(shareTasksResult.data);
+
+      let allTasks = [];
+      
+      // 处理普通任务
+      if (tasksResult?.data?.data) {
+        allTasks = tasksResult.data.data;
       }
       
-      // 触发子组件刷新
-      setRefreshTrigger(prev => prev + 1);
+      // 处理分享任务
+      if (shareTasksResult?.data?.data) {
+        const shareTasks = shareTasksResult.data.data.map(task => ({
+          id: task.id,
+          name: `Share ${task.token_symbol}`,
+          code: 'SHARE_TOKEN',
+          description: `Share ${task.token_name} to earn points`,
+          points: task.points,
+          daily_limit: task.daily_limit,
+          is_repeatable: true,
+          is_active: task.is_active,
+          is_completed: task.is_completed,
+          today_count: task.today_shared,
+          token_data: {
+            token_address: task.token_address,
+            token_symbol: task.token_symbol,
+            token_name: task.token_name,
+            token_logo: task.token_logo,
+            official_tweet_id: task.official_tweet_id
+          }
+        }));
+        
+        // 添加所有分享任务
+        allTasks = [...allTasks, ...shareTasks];
+      }
+      
+      setTasks(allTasks);
       
     } catch (error) {
-      console.error('刷新设置页面失败:', error);
-      Alert.alert('刷新失败', '请检查网络连接后重试');
+      console.log('刷新失败:', error);
     } finally {
       setRefreshing(false);
     }
   }, []);
   
-  // 首次加载时获取数据
+  // 确保在组件加载时调用 onRefresh
   useEffect(() => {
     onRefresh();
-  }, []);
+  }, [onRefresh]);
   
   // 添加图片加载错误状态
   const [avatarLoadError, setAvatarLoadError] = useState(false);
@@ -885,8 +1200,8 @@ const SettingsScreen = ({ navigation }) => {
             <TasksCard 
               navigation={navigation} 
               tasks={tasks}
-              shareTasks={shareTasks}
               refreshing={refreshing}
+              onRefresh={onRefresh}
             />
           </View>
 
@@ -1279,7 +1594,7 @@ const styles = StyleSheet.create({
   pointsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'nowrap',
+    marginTop: 4,
   },
   pointsText: {
     fontSize: 14,
@@ -1350,18 +1665,18 @@ const styles = StyleSheet.create({
   },
   taskItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
+    alignItems: 'center',
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
   taskIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 16,
     flexShrink: 0,
   },
   taskContent: {
@@ -1374,11 +1689,16 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  taskNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   taskName: {
     fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 4,
+    letterSpacing: 0.3,
   },
   taskDescription: {
     fontSize: 13,
@@ -1389,65 +1709,129 @@ const styles = StyleSheet.create({
   taskPoints: {
     fontSize: 13,
     color: '#F7B84B',
-    fontWeight: '500',
-    marginRight: 8,
+    fontWeight: '600',
   },
-  taskStatus: {
-    flexShrink: 0,
-    marginLeft: 'auto',
+  taskButtonDisabled: {
+    opacity: 1,
   },
-  completedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(31, 197, 149, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  completedText: {
-    color: '#1FC595',
-    fontSize: 13,
-    fontWeight: '500',
-    marginLeft: 4,
+  taskButtonCompleted: {
+    opacity: 1,
   },
   taskButton: {
     overflow: 'hidden',
-    borderRadius: 8,
-    width: 64,
+    borderRadius: 20,
+    width: 88,
+    height: 32,
     flexShrink: 0,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   taskButtonGradient: {
-    paddingVertical: 8,
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  taskButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   taskButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  infoButton: {
+    marginLeft: 6,
+    padding: 2,
+  },
+  taskRewardContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+  },
+  taskRewardText: {
+    color: '#F7B84B',
+    fontSize: 14,
+    fontWeight: '500',
   },
   sharedCount: {
     fontSize: 13,
     color: '#8E8E8E',
-    flexShrink: 1,
+    marginLeft: 8,
   },
-  shareButton: {
-    overflow: 'hidden',
+  tokenLogo: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+  },
+  tokenLogoText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  twitterShareButton: {
+    width: 90,
+    height: 32,
     borderRadius: 8,
-    width: 72,
-    flexShrink: 0,
+    overflow: 'hidden',
   },
-  shareButtonGradient: {
-    paddingVertical: 8,
+  twitterShareButtonGradient: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  shareButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+  twitterShareButtonDisabled: {
+    opacity: 1,
+  },
+  taskInfoModalContainer: {
+    width: '85%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#2A3352',
+  },
+  taskInfoGradient: {
+    padding: 20,
+  },
+  modalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  taskInfoContent: {
+    paddingTop: 16,
+  },
+  shareTasksContainer: {
+    marginTop: 10,
+  },
+  shareButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
   },
   shareButtonDisabled: {
-    opacity: 0.5,
-  }
+    backgroundColor: '#ccc',
+  },
+  shareButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
 });
 
 export default SettingsScreen;

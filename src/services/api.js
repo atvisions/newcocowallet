@@ -963,6 +963,12 @@ export const api = {
   // 获取积分历史
   async getPointsHistory(deviceId, page = 1, pageSize = 10) {
     try {
+      console.log('Calling getPointsHistory API:', {
+        deviceId,
+        page,
+        pageSize
+      });
+      
       const response = await axiosInstance.get(
         `/referrals/get_points_history/`, 
         {
@@ -974,24 +980,11 @@ export const api = {
         }
       );
       
-      if (response.data) {
-        return {
-          success: true,
-          data: response.data,
-          message: 'Points history retrieved successfully'
-        };
-      }
-      
-      return {
-        success: false,
-        message: 'Failed to retrieve points history'
-      };
+      console.log('API Response:', response);
+      return response;
     } catch (error) {
-      console.error('API Error - getPointsHistory:', error);
-      return {
-        success: false,
-        message: error.message || 'An error occurred while fetching points history'
-      };
+      console.error('API Error:', error);
+      throw error;
     }
   },
   
@@ -1072,40 +1065,14 @@ export const api = {
   // 获取普通任务列表
   async getTasks(deviceId) {
     try {
-      const response = await axiosInstance.get(
-        '/tasks/list_tasks/',
-        {
-          params: { device_id: deviceId }
-        }
-      );
-      
-      return response.data;
+      const response = await axiosInstance.get('/tasks/list_tasks/', {
+        params: { device_id: deviceId }
+      });
+      return response;
     } catch (error) {
-      console.error('获取任务列表失败:', error);
+      // 静默处理错误
       return {
         status: 'error',
-        message: error.response?.data?.message || '获取任务列表失败',
-        data: []
-      };
-    }
-  },
-
-  // 获取分享任务列表
-  async getShareTasks(deviceId) {
-    try {
-      const response = await axiosInstance.get(
-        '/share-task-tokens/available_tasks/',
-        {
-          params: { device_id: deviceId }
-        }
-      );
-      
-      return response.data;
-    } catch (error) {
-      console.error('获取分享任务失败:', error);
-      return {
-        status: 'error',
-        message: error.response?.data?.message || '获取分享任务失败',
         data: []
       };
     }
@@ -1156,6 +1123,86 @@ export const api = {
         data: { is_completed: false }  // 默认未完成
       };
     }
-  }
+  },
+
+  verifyShare: async (data) => {
+    try {
+      const response = await axiosInstance.post('/tasks/verify_share/', {  // 修正：使用正确的路径，注意是下划线
+        device_id: data.device_id,
+        token_address: data.token_address,
+        tweet_id: data.tweet_id
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Share verification error:', error);
+      throw error;
+    }
+  },
+
+  // 获取代币的官方文章链接
+  async getTokenArticle(tokenAddress) {
+    try {
+      const response = await axiosInstance.get(
+        '/share-task-tokens/article/',
+        {
+          params: { token_address: tokenAddress }
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('获取官方文章失败:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || '获取文章失败',
+        data: null
+      };
+    }
+  },
+
+  // 修改获取分享任务的方法
+  getShareTasks: async (deviceId) => {
+    try {
+      const response = await axiosInstance.get('/tasks/share-tasks/available_tasks/', {
+        params: { device_id: deviceId }
+      });
+      return response;
+    } catch (error) {
+      return {
+        status: 'error',
+        data: []
+      };
+    }
+  },
+
+  // 添加更新任务状态的方法
+  async updateTaskStatus(deviceId, taskCode) {
+    try {
+      const response = await axiosInstance.post('/tasks/complete_task/', {
+        device_id: deviceId,
+        task_code: taskCode
+      });
+      return response.data;
+    } catch (error) {
+      console.error('更新任务状态失败:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || '更新任务状态失败'
+      };
+    }
+  },
+
+  // 添加签到接口
+  dailyCheckIn: async (deviceId) => {
+    try {
+      const response = await axiosInstance.post('/tasks/complete_task/', {
+        device_id: deviceId,
+        task_code: 'DAILY_CHECK_IN'
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Daily check-in failed:', error);
+      throw error;
+    }
+  },
 };
 
