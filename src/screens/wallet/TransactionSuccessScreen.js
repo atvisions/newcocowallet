@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
+import Toast, { ToastView } from '../../components/Toast';
+import { DeviceManager } from '../../utils/device';
 
 export default function TransactionSuccessScreen({ route, navigation }) {
   const { 
@@ -47,6 +49,25 @@ export default function TransactionSuccessScreen({ route, navigation }) {
     // 打印交易哈希，用于调试
     console.log('Transaction hash in success screen:', transactionHash);
   }, []);
+
+  // 修改任务完成的处理
+  useEffect(() => {
+    const showTaskMessage = async () => {
+      // 只有当有任务消息时才显示
+      if (route.params?.taskCompleted && route.params?.taskMessage) {
+        try {
+          // 直接使用 Toast 组件显示任务完成消息
+          setTimeout(() => {
+            Toast?.show(route.params.taskMessage, 'success');
+          }, 300); // 给一个短暂延迟确保组件已加载
+        } catch (error) {
+          console.warn('Failed to show task message:', error);
+        }
+      }
+    };
+
+    showTaskMessage();
+  }, [route.params?.taskCompleted, route.params?.taskMessage]);
 
   const formatAddress = (address) => {
     if (!address) return '';
@@ -146,6 +167,7 @@ export default function TransactionSuccessScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      <ToastView />
     </SafeAreaView>
   );
 }

@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../../services/api';
 import { DeviceManager } from '../../utils/device';
+import Toast, { ToastView } from '../../components/Toast';
 
 export default function TransactionLoadingScreen({ navigation, route }) {
   const [status, setStatus] = useState('processing');
@@ -95,7 +96,7 @@ export default function TransactionLoadingScreen({ navigation, route }) {
       if (!transactionData.is_native) {
         const tokenAddress = transactionData.token_address || tokenInfo?.address;
         if (!tokenAddress) {
-          throw new Error('代币地址不能为空');
+          throw new Error('Token address cannot be empty');
         }
         params.token_address = tokenAddress;
       }
@@ -151,21 +152,21 @@ export default function TransactionLoadingScreen({ navigation, route }) {
     } catch (error) {
       console.error('Transaction failed:', error);
       
-      const errorMessage = error.message || '交易失败，请稍后重试';
+      const errorMessage = error.message || 'Transaction failed, please try again later';
       const errorCode = error.error_code || 'UNKNOWN_ERROR';
       
       if (errorCode === 'NETWORK_ERROR') {
         Alert.alert(
-          '网络错误',
-          '请检查网络连接并重试',
+          'Network Error',
+          'Please check your network connection and try again',
           [
             { 
-              text: '取消', 
+              text: 'Cancel', 
               style: 'cancel',
               onPress: () => handleTransactionError(errorMessage, errorCode)
             },
             { 
-              text: '重试', 
+              text: 'Retry', 
               onPress: () => {
                 setStatus('processing');
                 setTransactionStep('CREATING');
@@ -224,7 +225,7 @@ export default function TransactionLoadingScreen({ navigation, route }) {
               
               default:
                 if (retryCount >= maxRetries) {
-                  throw new Error('交易确认超时');
+                  throw new Error('Transaction confirmation timeout');
                 }
                 return false;
             }
@@ -246,8 +247,8 @@ export default function TransactionLoadingScreen({ navigation, route }) {
           setRetryCount(count => count + 1);
           await new Promise(resolve => setTimeout(resolve, pollingInterval));
         } catch (error) {
-          if (error.message.includes('超时') || retryCount >= maxRetries - 1) {
-            throw error;
+          if (error.message.includes('timeout') || retryCount >= maxRetries - 1) {
+            throw new Error('Transaction confirmation timeout, please check transaction history');
           }
           // 其他错误继续重试
           setRetryCount(count => count + 1);
@@ -257,7 +258,7 @@ export default function TransactionLoadingScreen({ navigation, route }) {
       
       // 如果达到最大重试次数
       if (retryCount >= maxRetries) {
-        throw new Error('交易确认超时，请在区块浏览器中查看交易状态');
+        throw new Error('Transaction confirmation timeout');
       }
       
     } catch (error) {
@@ -275,14 +276,48 @@ export default function TransactionLoadingScreen({ navigation, route }) {
     }
   };
 
-  const handleSuccess = (txHash, data) => {
-    // Navigate to transaction success screen first
-    navigation.replace('TransactionSuccess', {
-      amount: data.amount,
-      token: data.token_symbol || data.token,
-      recipientAddress: data.to_address,
-      transactionHash: txHash
-    });
+  const handleSuccess = async (txHash, data) => {
+    try {
+      // 先检查任务状态
+      try {
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        // 检查任务状态
+        const checkResponse = await api.checkTaskStatus(
+          deviceId,
+          'FIRST_TRANSFER'
+        );
+
+        // 只有当响应成功且任务未完成时才尝试完成任务
+        if (checkResponse?.status === 'success' && 
+            checkResponse?.data?.is_completed === false) {
+          // 尝试完成任务
+          await api.completeTask({
+            device_id: deviceId,
+            task_code: 'FIRST_TRANSFER'
+          });
+        }
+      } catch (error) {
+        // 任务相关错误不影响主流程
+        console.error('Task check/completion error:', error);
+      }
+
+      // 直接导航到成功页面
+      navigation.replace('TransactionSuccess', {
+        amount: data.amount,
+        token: data.token_symbol || data.token,
+        recipientAddress: data.to_address,
+        transactionHash: txHash
+      });
+    } catch (error) {
+      console.error('Failed to handle transfer success:', error);
+      navigation.replace('TransactionSuccess', {
+        amount: data.amount,
+        token: data.token_symbol || data.token,
+        recipientAddress: data.to_address,
+        transactionHash: txHash
+      });
+    }
   };
 
   const handleTransactionError = (errorMessage, errorCode) => {
@@ -329,6 +364,7 @@ export default function TransactionLoadingScreen({ navigation, route }) {
           </>
         )}
       </View>
+      <ToastView />
     </SafeAreaView>
   );
 }

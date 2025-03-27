@@ -669,10 +669,12 @@ const SwapScreen = ({ navigation, route }) => {
     Toast.show('Processing Transaction...', 'pending');
     
     let attempts = 0;
-    const maxAttempts = 12; // 从30减少到12
+    const maxAttempts = 12; // 最多尝试12次
     
-    while (attempts < maxAttempts) {
-      try {
+    try {
+      while (attempts < maxAttempts) {
+        console.log(`检查交易状态，第 ${attempts + 1} 次尝试`);
+        
         const deviceId = await DeviceManager.getDeviceId();
         const response = await api.getSolanaSwapStatus(
           selectedWallet.id, 
@@ -680,30 +682,39 @@ const SwapScreen = ({ navigation, route }) => {
           deviceId
         );
         
+        console.log('交易状态响应:', response);
+        
         if (response.status === 'success' && response.data) {
           if (response.data.status === 'confirmed') {
+            console.log('交易确认成功');
             await handleTransactionSuccess(signature);
-            isPolling.current = false; // 重置轮询标志
+            isPolling.current = false;
             return;
           } 
           else if (response.data.status === 'failed') {
+            console.log('交易失败');
             handleTransactionFailure();
-            isPolling.current = false; // 重置轮询标志
+            isPolling.current = false;
             return;
           }
         }
         
         attempts++;
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 从2秒增加到5秒
-      } catch (error) {
-        console.error('Status check failed:', error);
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 从2秒增加到5秒
+        if (attempts >= maxAttempts) {
+          console.log('达到最大尝试次数');
+          Toast.show('Transaction Status Check Timeout', 'error');
+          break;
+        }
+        
+        console.log('等待5秒后重试...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
+    } catch (error) {
+      console.error('检查交易状态出错:', error);
+      Toast.show(error.message || 'Failed to check transaction status', 'error');
+    } finally {
+      isPolling.current = false;
     }
-    
-    Toast.show('Transaction Status Check Timeout', 'error');
-    isPolling.current = false; // 重置轮询标志
   };
 
   // 修改开始检查交易状态的函数
@@ -910,21 +921,55 @@ const SwapScreen = ({ navigation, route }) => {
 
   const handleTransactionSuccess = async (signature) => {
     try {
+      // 先等待 3 秒
       await new Promise(r => setTimeout(r, 3000));
       const updated = await updateTokenBalance();
       
-      if (updated) {
-        Toast.show('Transaction Successful', 'success');
-      } else {
-        Toast.show('Transaction Successful, Please Refresh Balance', 'success');
+      // 先显示交易成功
+      Toast.show('Transaction Successful', 'success');
+      
+      try {
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        // 先检查任务状态
+        const checkResponse = await api.checkTaskStatus(
+          deviceId,
+          'FIRST_SWAP'
+        );
+
+        // 只有当响应成功且任务未完成时才尝试完成任务
+        if (checkResponse?.status === 'success' && 
+            checkResponse?.data?.is_completed === false) {
+          // 尝试完成任务
+          const taskResponse = await api.completeTask({
+            device_id: deviceId,
+            task_code: 'FIRST_SWAP',
+            extra_data: {
+              signature: signature,
+              from_token: fromToken?.token_address,
+              to_token: toToken?.token_address,
+              amount: amount
+            }
+          });
+
+          // 任务成功后延迟显示第二个提示
+          if (taskResponse.status === 'success') {
+            setTimeout(() => {
+              Toast.show(taskResponse.message || 'First Swap Completed! Points Awarded', 'success');
+            }, 1500);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to complete swap task:', error);
       }
     } catch (error) {
-      console.error('Transaction success handling failed:', error);
+      console.error('Failed to handle transaction success callback:', error);
       Toast.show('Transaction Successful, Balance Update Failed', 'success');
     }
   };
 
   const handleTransactionFailure = () => {
+    console.log('交易失败');
     Toast.show('Transaction Failed', 'error');
   };
 
@@ -1722,12 +1767,23 @@ const SwapScreen = ({ navigation, route }) => {
       const response = await api.executeSolanaSwap(selectedWallet.id, swapParams);
       
       if (response?.status === 'success') {
+        // 简化任务处理逻辑，直接尝试完成任务
+        try {
+          const completeResponse = await api.completeTask(deviceId, 'FIRST_SWAP');
+          if (completeResponse.status === 'success') {
+            Toast.show('First swap completed! Points awarded', 'success');
+          }
+        } catch (taskError) {
+          console.error('完成任务失败:', taskError);
+        }
+
         // 重置状态
         setAmount('');
         setQuote(null);
         setFees(null);
-        // 刷新余额
         loadUserTokens();
+        
+        Toast.show('Transaction Submitted', 'success');
       } else {
         Toast.show(response?.message || 'Transaction Failed', 'error');
       }

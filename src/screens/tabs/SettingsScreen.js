@@ -312,32 +312,32 @@ const PointsAndReferralCard = ({
     }
   }, [externalUserPoints]);
 
-  const loadData = async () => {
-    try {
-      setIsLoadingPoints(true);
-      const deviceId = await DeviceManager.getDeviceId();
-      
-      // 获取用户积分
+    const loadData = async () => {
+      try {
+        setIsLoadingPoints(true);
+        const deviceId = await DeviceManager.getDeviceId();
+        
+        // 获取用户积分
       if (externalUserPoints === null || externalUserPoints === undefined) {
         const pointsResponse = await api.getPoints(deviceId);
         if (pointsResponse.status === 'success') {
           setUserPoints(pointsResponse.data.total_points || 0);
         }
-      }
-      
+        }
+        
       // 获取推荐链接 - 使用后端返回的完整链接
-      const linkResponse = await api.getLink(deviceId);
-      if (linkResponse.status === 'success') {
+        const linkResponse = await api.getLink(deviceId);
+        if (linkResponse.status === 'success') {
         // 直接使用后端返回的完整链接
         setReferralLink(linkResponse.data.full_link || '');
         console.log('获取到推荐链接:', linkResponse.data.full_link);
+        }
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setIsLoadingPoints(false);
       }
-    } catch (error) {
-      console.error('Failed to load data:', error);
-    } finally {
-      setIsLoadingPoints(false);
-    }
-  };
+    };
   
   // 复制到剪贴板并显示成功图标
   const copyToClipboard = () => {
@@ -446,6 +446,163 @@ const PointsAndReferralCard = ({
   );
 };
 
+// 修改为任务卡片组件
+const TasksCard = ({ navigation, tasks = [], shareTasks = [], refreshing }) => {
+  // 任务类型对应的图标和颜色
+  const taskIcons = {
+    DAILY_CHECK_IN: {
+      icon: "calendar-check-o",
+      color: "#1FC595",
+      iconFamily: "FontAwesome"
+    },
+    FIRST_TRANSFER: {
+      icon: "paper-plane",
+      color: "#4A6FFF",
+      iconFamily: "FontAwesome"
+    },
+    FIRST_SWAP: {
+      icon: "swap-horizontal",
+      color: "#F7B84B",
+      iconFamily: "Ionicons"
+    },
+    INVITE_DOWNLOAD: {
+      icon: "person-add",
+      color: "#FF6B6B",
+      iconFamily: "Ionicons"
+    },
+    SHARE_TOKEN: {
+      icon: "share-social",
+      color: "#5856D6",
+      iconFamily: "Ionicons"
+    }
+  };
+
+  // 渲染任务图标
+  const renderTaskIcon = (taskCode) => {
+    const iconConfig = taskIcons[taskCode] || taskIcons.SHARE_TOKEN;
+    const IconComponent = iconConfig.iconFamily === "Ionicons" ? Ionicons : FontAwesome;
+    
+    return (
+      <View style={[styles.taskIconContainer, { backgroundColor: `${iconConfig.color}20` }]}>
+        <IconComponent name={iconConfig.icon} size={20} color={iconConfig.color} />
+      </View>
+    );
+  };
+
+  return (
+    <LinearGradient
+      colors={['#2E2C46', '#1A1C2E']}
+      style={styles.taskCard}
+    >
+      <View style={styles.taskHeader}>
+        <View style={styles.taskTitleContainer}>
+          <Ionicons name="star" size={16} color="#F7B84B" style={{marginRight: 8}} />
+          <Text style={styles.taskTitle}>Available Tasks</Text>
+        </View>
+      </View>
+
+      {refreshing ? (
+        <ActivityIndicator color="#4A6FFF" style={{padding: 20}} />
+      ) : (
+        <View style={styles.taskList}>
+          {/* 普通任务 */}
+          {tasks.map((task, index) => (
+            <View key={`task-${index}`} style={styles.taskItem}>
+              {renderTaskIcon(task.code)}
+              <View style={styles.taskContent}>
+                <View style={styles.taskInfo}>
+                  <Text style={styles.taskName}>{task.name}</Text>
+                  <Text style={styles.taskDescription}>{task.description}</Text>
+                  <View style={styles.pointsContainer}>
+                    <FontAwesome name="star" size={12} color="#F7B84B" style={{marginRight: 4}} />
+                    <Text style={styles.taskPoints}>+{task.points}</Text>
+                  </View>
+                </View>
+                <View style={styles.taskStatus}>
+                  {task.is_completed ? (
+                    <View style={styles.completedBadge}>
+                      <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                      <Text style={styles.completedText}>Done</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.taskButton}
+                      onPress={() => {
+                        // 根据任务类型导航到不同页面
+                        switch(task.code) {
+                          case 'FIRST_SWAP':
+                            navigation.navigate('Swap');
+                            break;
+                          case 'FIRST_TRANSFER':
+                            navigation.navigate('Send');
+                            break;
+                          case 'INVITE_DOWNLOAD':
+                            // 处理邀请分享
+                            break;
+                          default:
+                            // 其他任务处理
+                        }
+                      }}
+                    >
+                      <LinearGradient
+                        colors={['#4A6FFF', '#2E5BFF']}
+                        style={styles.taskButtonGradient}
+                      >
+                        <Text style={styles.taskButtonText}>Go</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            </View>
+          ))}
+
+          {/* 分享任务 */}
+          {shareTasks.map((task, index) => (
+            <View key={`share-${index}`} style={styles.taskItem}>
+              {renderTaskIcon('SHARE_TOKEN')}
+              <View style={styles.taskContent}>
+                <View style={styles.taskInfo}>
+                  <Text style={styles.taskName}>Share {task.token_symbol}</Text>
+                  <Text style={styles.taskDescription}>
+                    Share {task.token_name} on social media
+                  </Text>
+                  <View style={styles.pointsContainer}>
+                    <FontAwesome name="star" size={12} color="#F7B84B" style={{marginRight: 4}} />
+                    <Text style={styles.taskPoints}>+{task.points}</Text>
+                    {task.today_shared > 0 && (
+                      <Text style={styles.sharedCount}>
+                        · {task.today_shared}/{task.daily_limit} today
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.shareButton,
+                    !task.can_share && styles.shareButtonDisabled
+                  ]}
+                  onPress={() => handleShare(task)}
+                  disabled={!task.can_share}
+                >
+                  <LinearGradient
+                    colors={task.can_share ? ['#4A6FFF', '#2E5BFF'] : ['#4A6FFF80', '#2E5BFF80']}
+                    style={styles.shareButtonGradient}
+                  >
+                    <Text style={styles.shareButtonText}>
+                      {task.can_share ? 'Share' : 'Done'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </LinearGradient>
+  );
+};
+
 const SettingsScreen = ({ navigation }) => {
   const { wallets, loadWallets, selectedWallet } = useWallet();
   const [refreshing, setRefreshing] = useState(false);
@@ -458,6 +615,8 @@ const SettingsScreen = ({ navigation }) => {
   
   // 添加这个状态来跟踪处理后的钱包数据
   const [processedWallet, setProcessedWallet] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [shareTasks, setShareTasks] = useState([]);
 
   // 添加useEffect来处理钱包数据
   useEffect(() => {
@@ -587,24 +746,46 @@ const SettingsScreen = ({ navigation }) => {
     setRefreshing(true);
     
     try {
-      // 使用 loadWallets 替代 fetchWallets
-      if (typeof loadWallets === 'function') {
-        await loadWallets();
-      } else {
-        // 备选刷新方法
-        await refreshWalletData();
-      }
+      const deviceId = await DeviceManager.getDeviceId();
       
-      // 更新用户积分信息
-      await loadUserPoints();
+      // 并行请求所需数据
+      const [
+        pointsResult,
+        statsResult,
+        linkResult,
+        passwordStatus,
+        tasksResult,
+        shareTasksResult
+      ] = await Promise.all([
+        // 获取用户积分
+        api.getPoints(deviceId),
+        
+        // 获取推荐统计信息
+        api.getReferralStats(deviceId),
+        
+        // 获取推荐链接
+        api.getLink(deviceId),
+        
+        // 检查支付密码状态
+        checkPaymentPasswordStatus(),
+
+        // 获取任务列表
+        api.getTasks(deviceId),
+
+        // 获取分享任务列表
+        api.getShareTasks(deviceId)
+      ]);
+
+      // 更新状态
+      if (tasksResult?.status === 'success') {
+        setTasks(tasksResult.data);
+      }
+      if (shareTasksResult?.status === 'success') {
+        setShareTasks(shareTasksResult.data);
+      }
       
       // 触发子组件刷新
       setRefreshTrigger(prev => prev + 1);
-      
-      // 检查推荐系统信息（用于调试）
-      if (__DEV__) {
-        await checkReferralSystemInfo();
-      }
       
     } catch (error) {
       console.error('刷新设置页面失败:', error);
@@ -612,51 +793,11 @@ const SettingsScreen = ({ navigation }) => {
     } finally {
       setRefreshing(false);
     }
-  }, [loadWallets]);
+  }, []);
   
-  // 备选的钱包刷新函数
-  const refreshWalletData = async () => {
-    try {
-      const deviceId = await DeviceManager.getDeviceId();
-      // 直接使用 API 获取钱包列表
-      await api.getWallets(deviceId);
-      console.log('钱包数据已刷新');
-    } catch (error) {
-      console.error('刷新钱包数据失败:', error);
-      throw error; // 重新抛出错误以便上层捕获
-    }
-  };
-  
-  // 加载用户积分
-  const loadUserPoints = async () => {
-    try {
-      const deviceId = await DeviceManager.getDeviceId();
-      const result = await api.getPoints(deviceId);
-      
-      if (result && result.status === 'success') {
-        setUserPoints(result.data.total_points || 0);
-        console.log('【设置页面】加载到用户积分:', result.data.total_points);
-      }
-    } catch (error) {
-      console.error('加载用户积分失败:', error);
-    }
-  };
-  
-  // 检查推荐系统信息（开发环境下的调试功能）
-  const checkReferralSystemInfo = async () => {
-    try {
-      // 只保留推荐统计的获取
-      const deviceId = await DeviceManager.getDeviceId();
-      const stats = await api.getReferralStats(deviceId);
-      console.log('【设置页面】推荐统计信息:', stats);
-    } catch (error) {
-      console.error('检查推荐系统信息失败:', error);
-    }
-  };
-  
-  // 首次加载时获取用户积分
-  React.useEffect(() => {
-    loadUserPoints();
+  // 首次加载时获取数据
+  useEffect(() => {
+    onRefresh();
   }, []);
   
   // 添加图片加载错误状态
@@ -682,9 +823,9 @@ const SettingsScreen = ({ navigation }) => {
             onPress={() => navigation.navigate('WalletSelector')}
           >
             {selectedWallet?.avatar ? (
-              <Image 
+            <Image 
                 source={{ uri: selectedWallet.avatar }} 
-                style={styles.walletAvatar}
+              style={styles.walletAvatar} 
                 onError={(error) => {
                   console.error('头像加载失败:', error.nativeEvent);
                   setAvatarLoadError(true);
@@ -738,6 +879,14 @@ const SettingsScreen = ({ navigation }) => {
               externalUserPoints={userPoints}
               refreshing={refreshing}
               forceRefresh={refreshTrigger}
+            />
+
+            {/* 添加分享任务卡片，并传递任务数据 */}
+            <TasksCard 
+              navigation={navigation} 
+              tasks={tasks}
+              shareTasks={shareTasks}
+              refreshing={refreshing}
             />
           </View>
 
@@ -1128,9 +1277,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pointsContainer: {
-    width: 40,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    flexWrap: 'nowrap',
   },
   pointsText: {
     fontSize: 14,
@@ -1177,6 +1326,128 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
+  taskCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 12,
+  },
+  taskHeader: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  taskTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  taskList: {
+    padding: 16,
+  },
+  taskItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  taskIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  taskContent: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  taskInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  taskName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  taskDescription: {
+    fontSize: 13,
+    color: '#8E8E8E',
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  taskPoints: {
+    fontSize: 13,
+    color: '#F7B84B',
+    fontWeight: '500',
+    marginRight: 8,
+  },
+  taskStatus: {
+    flexShrink: 0,
+    marginLeft: 'auto',
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(31, 197, 149, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  completedText: {
+    color: '#1FC595',
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  taskButton: {
+    overflow: 'hidden',
+    borderRadius: 8,
+    width: 64,
+    flexShrink: 0,
+  },
+  taskButtonGradient: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  taskButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sharedCount: {
+    fontSize: 13,
+    color: '#8E8E8E',
+    flexShrink: 1,
+  },
+  shareButton: {
+    overflow: 'hidden',
+    borderRadius: 8,
+    width: 72,
+    flexShrink: 0,
+  },
+  shareButtonGradient: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  shareButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  shareButtonDisabled: {
+    opacity: 0.5,
+  }
 });
 
 export default SettingsScreen;

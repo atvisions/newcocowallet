@@ -466,21 +466,33 @@ export const api = {
 
   async getWalletTokens(deviceId, walletId, chain, signal) {
     try {
-      const chainPath = chain.toLowerCase() === 'sol' ? 'solana' : 'evm';
-      const url = `${BASE_URL}/${chainPath}/wallets/${walletId}/tokens/`;
-
-      const response = await axios.get(url, {
-        params: {
-          device_id: deviceId
-        },
-        headers: {
-          'Device-ID': deviceId
-        },
-        signal
+      console.log('【DEBUG】开始获取钱包代币:', {
+        deviceId,
+        walletId,
+        chain
       });
       
+      const chainPath = chain.toLowerCase() === 'sol' ? 'solana' : 'evm';
+      const response = await axiosInstance.get(
+        `/${chainPath}/wallets/${walletId}/tokens/`,
+        {
+          params: {
+            device_id: deviceId
+          },
+          headers: {
+            'Device-ID': deviceId
+          },
+          signal
+        }
+      );
+      
+      console.log('【DEBUG】获取代币响应:', response.data);
       return response.data;
     } catch (error) {
+      console.error('【DEBUG】获取代币失败:', {
+        error: error.message,
+        response: error.response?.data
+      });
       throw error;
     }
   },
@@ -832,7 +844,6 @@ export const api = {
         throw new Error('Invalid wallet ID');
       }
 
-      // 修改 URL 格式，添加末尾斜杠
       const url = `/solana/wallets/${numericWalletId}/swap/status/${signature}/`;
 
       const response = await axiosInstance.get(url, {
@@ -1057,5 +1068,94 @@ export const api = {
       };
     }
   },
+
+  // 获取普通任务列表
+  async getTasks(deviceId) {
+    try {
+      const response = await axiosInstance.get(
+        '/tasks/list_tasks/',
+        {
+          params: { device_id: deviceId }
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error('获取任务列表失败:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || '获取任务列表失败',
+        data: []
+      };
+    }
+  },
+
+  // 获取分享任务列表
+  async getShareTasks(deviceId) {
+    try {
+      const response = await axiosInstance.get(
+        '/share-task-tokens/available_tasks/',
+        {
+          params: { device_id: deviceId }
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error('获取分享任务失败:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || '获取分享任务失败',
+        data: []
+      };
+    }
+  },
+
+  // 验证分享任务
+  async verifyShareTask(deviceId, tweetId) {
+    try {
+      const response = await axiosInstance.post(
+        '/share-tasks/verify_share/',
+        {
+          device_id: deviceId,
+          tweet_id: tweetId
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      console.error('验证分享失败:', error);
+      return {
+        status: 'error',
+        message: error.response?.data?.message || '验证分享失败，请重试'
+      };
+    }
+  },
+
+  // 完成任务
+  async completeTask(params) {
+    try {
+      const response = await axiosInstance.post('/tasks/complete_task/', params);
+      return response.data;
+    } catch (error) {
+      console.error('[API] 完成任务失败:', error.response?.data || error);
+      throw error.response?.data || error;
+    }
+  },
+
+  async checkTaskStatus(deviceId, taskCode) {
+    try {
+      const response = await axiosInstance.get('/tasks/check_task_status/?device_id=' + deviceId + '&task_code=' + taskCode);
+      return response.data;
+    } catch (error) {
+      console.error('检查任务状态失败:', error);
+      // 返回标准格式的错误响应
+      return { 
+        status: 'error', 
+        message: error.response?.data?.message || '检查任务状态失败',
+        data: { is_completed: false }  // 默认未完成
+      };
+    }
+  }
 };
 

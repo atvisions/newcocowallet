@@ -58,17 +58,36 @@ const PointsHistoryScreen = ({ navigation }) => {
       
       // 获取积分历史
       const historyResponse = await api.getPointsHistory(deviceId, currentPage, 10);
-      console.log('Points history response:', JSON.stringify(historyResponse));
+      console.log('Points history raw response:', historyResponse);
       
-      // 解析嵌套的响应结构
-      // 从日志看，API 返回的数据结构是 {success, data: {status, data: {total, page, page_size, results}}, message}
-      // 而代码中期望的结构是 {status, data: {total, page, page_size, results}}
-      if (historyResponse.success && historyResponse.data && historyResponse.data.status === 'success') {
-        const responseData = historyResponse.data.data;
-        const { results, total } = responseData;
+      // 添加数据结构检查和处理
+      let validResults = [];
+      let total = 0;
+      
+      if (historyResponse.success && historyResponse.data) {
+        // 检查不同的数据结构可能性
+        if (historyResponse.data.results) {
+          // 直接包含结果的情况
+          validResults = historyResponse.data.results;
+          total = historyResponse.data.total;
+        } else if (historyResponse.data.data?.results) {
+          // 嵌套在 data 中的情况
+          validResults = historyResponse.data.data.results;
+          total = historyResponse.data.data.total;
+        } else if (Array.isArray(historyResponse.data)) {
+          // 直接是数组的情况
+          validResults = historyResponse.data;
+          total = validResults.length;
+        }
         
         // 确保结果是数组
-        const validResults = Array.isArray(results) ? results : [];
+        validResults = Array.isArray(validResults) ? validResults : [];
+        
+        // 打印处理后的数据
+        console.log('Processed history data:', {
+          results: validResults,
+          total: total
+        });
         
         if (isRefresh) {
           setHistoryData(validResults);
@@ -78,8 +97,6 @@ const PointsHistoryScreen = ({ navigation }) => {
         
         setHasMore(currentPage * 10 < total);
         setPage(currentPage + 1);
-      } else {
-        console.error('Failed to load points history, invalid response:', historyResponse);
       }
     } catch (error) {
       console.error('Failed to load points history:', error);
@@ -105,6 +122,8 @@ const PointsHistoryScreen = ({ navigation }) => {
         return <Ionicons name="download-outline" size={20} color="#4A6FFF" />;
       case 'WALLET_CREATION_REFERRAL':
         return <Ionicons name="wallet-outline" size={20} color="#F7B84B" />;
+      case 'SHARE_TOKEN':
+        return <Ionicons name="share-social-outline" size={20} color="#1FC595" />;
       default:
         return <Ionicons name="star-outline" size={20} color="#1FC595" />;
     }
@@ -120,7 +139,6 @@ const PointsHistoryScreen = ({ navigation }) => {
   };
 
   const getActionTitle = (actionType, actionDisplay) => {
-    // 使用 action_display 作为首选，如果没有则回退到基于 action_type 的处理
     if (actionDisplay) return actionDisplay;
     
     switch(actionType) {
@@ -128,6 +146,8 @@ const PointsHistoryScreen = ({ navigation }) => {
         return 'App Download';
       case 'WALLET_CREATION_REFERRAL':
         return 'Wallet Creation';
+      case 'SHARE_TOKEN':
+        return 'Token Share';
       default:
         return 'Points Earned';
     }

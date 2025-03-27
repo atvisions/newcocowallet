@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CommonActions } from '@react-navigation/native';
 import { useWallet } from '../../contexts/WalletContext';
 import { processWalletData } from '../../utils/walletUtils';
+import Toast, { ToastView } from '../../components/Toast';
 
 export default function PaymentPasswordScreen({ route, navigation }) {
   const { title = 'Enter Password', action, walletId, onSuccess } = route.params || {};
@@ -114,81 +115,65 @@ export default function PaymentPasswordScreen({ route, navigation }) {
 
   const handlePasswordComplete = async (password) => {
     try {
-      setProcessingStatus('Submitting transaction...');
+      setProcessingStatus('Verifying password...');
       
-      // 验证密码
       const response = await api.verifyPaymentPassword(deviceId, password);
 
       if (response.status === 'success') {
-        // 密码验证成功，更新状态提示
         setProcessingStatus('Submitting transaction...');
-        
-        // 执行交易
         await handlePasswordVerified(password);
       } else {
-        // 密码错误，清空输入
         setPassword('');
         setError('Incorrect password, please try again');
       }
     } catch (error) {
-      console.error('Processing error:', error);
+      console.error('[Password Verification] Processing error:', error);
       setPassword('');
       setError(error.message || 'Operation failed, please try again');
-    } finally {
-      setIsProcessing(false);
-      setProcessingStatus('');
     }
   };
 
   const handlePasswordVerified = async (password) => {
-    console.log('Password verification successful, preparing to execute callback...');
-    
     try {
       setIsProcessing(true);
-      if (route.params?.onSuccess) {
-        // 直接执行回调函数，传递密码
-        await route.params.onSuccess(password);
-      } else if (route.params?.purpose === 'send_transaction') {
-        const { transactionData, nextScreen } = route.params;
+      setProcessingStatus('Submitting transaction...');
+      
+      // 处理转账交易
+      if (route.params?.purpose === 'transfer') {
+        const { transferData } = route.params;
+        const deviceId = await DeviceManager.getDeviceId();
         
-        // 确保 transactionData 包含所有必要的信息
-        console.log('Transaction data:', {
-          ...transactionData,
-          token_address: transactionData.token_address
+        console.log('转账参数:', {
+          walletId: transferData.walletId,
+          deviceId: deviceId,
+          to_address: transferData.to_address,
+          amount: transferData.amount,
+          token_address: transferData.token_address,
+          is_native: transferData.is_native
         });
-        
+
         // 导航到交易加载页面
-        navigation.navigate(nextScreen || 'TransactionLoading', {
-          ...transactionData,
-          payment_password: password
+        navigation.navigate('TransactionLoading', {
+          ...transferData,
+          wallet_id: transferData.walletId,
+          walletId: transferData.walletId,
+          device_id: deviceId,
+          payment_password: password,
+          token_symbol: transferData.token?.symbol || transferData.token_symbol,
+          token: transferData.token?.symbol || transferData.token_symbol
         });
-      } else if (route.params?.purpose === 'swap') {
+        return;
+      }
+      
+      // 处理 Swap 交易
+      else if (route.params?.purpose === 'swap') {
         const { swapData } = route.params;
         
-        console.log('Received Swap data:', {
-          ...swapData,
-          quote_id: swapData.quote_id ? '(length:' + swapData.quote_id.length + ')' : null,
-          payment_password: '******'
-        });
-        
         try {
-          // 解析 quote 数据
           const quoteData = JSON.parse(swapData.quote_id);
-          
-          console.log('Transaction amount check:', {
-            displayAmount: swapData.amount,
-            chainAmount: quoteData.inAmount,
-          });
-
-          // 确保 walletId 是数字类型
           const numericWalletId = Number(swapData.walletId);
-          if (isNaN(numericWalletId)) {
-            console.error(`Invalid wallet ID: ${swapData.walletId}, type: ${typeof swapData.walletId}`);
-            throw new Error(`Invalid wallet ID: ${swapData.walletId}`);
-          }
-
-          // 构建交易参数
-          const transactionParams = {
+          
+          const response = await api.executeSolanaSwap(numericWalletId, {
             device_id: swapData.deviceId,
             from_token: swapData.from_token,
             to_token: swapData.to_token,
@@ -196,38 +181,13 @@ export default function PaymentPasswordScreen({ route, navigation }) {
             quote_id: swapData.quote_id,
             payment_password: password,
             slippage: swapData.slippage
-          };
-
-          console.log('Preparing to submit transaction, parameters:', {
-            ...transactionParams,
-            payment_password: '******',
-            quote_id: '(length:' + swapData.quote_id.length + ')'
           });
-
-          // 执行交易
-          console.log('Starting transaction execution...');
-          setProcessingStatus('Submitting transaction...');
-          
-          // 执行交易
-          const response = await api.executeSolanaSwap(numericWalletId, transactionParams);
-          console.log('Transaction response:', JSON.stringify(response, null, 2));
           
           if (response.status === 'success') {
-            // 尝试提取签名
-            let signature = null;
-            
-            // 检查 response.data.signature
-            if (response.data && response.data.signature) {
-              console.log('Extracting signature from response.data.signature');
-              signature = typeof response.data.signature === 'object' ? 
-                response.data.signature.result : response.data.signature;
-              console.log('Extracted signature:', signature);
-            }
+            let signature = response.data?.signature?.result || response.data?.signature;
             
             if (signature) {
-              console.log('Transaction successful, returning to Swap screen');
-              
-              // 跳转回Swap页面，携带签名和fromToken信息
+              // 返回 Swap 页面
               navigation.navigate('MainStack', {
                 screen: 'Tabs',
                 params: {
@@ -238,26 +198,24 @@ export default function PaymentPasswordScreen({ route, navigation }) {
                       fromSymbol: swapData.fromSymbol,
                       toSymbol: swapData.toSymbol,
                       amount: swapData.amount,
-                      fromToken: swapData.from_token,  // 传递当前的fromToken
-                      checkTransactionStatus: true,
-                      // 添加时间戳，确保每次都被视为新的参数
+                      fromToken: swapData.from_token,
+                      toToken: swapData.to_token,
+                      status: 'processing',
                       timestamp: Date.now()
                     }
                   }
                 }
               });
-            } else {
-              console.error('Warning: Transaction response successful but no signature received');
-              handleTransactionError('Transaction submitted, please check transaction history');
+              return;
             }
-          } else {
-            console.error('Transaction execution failed:', response);
-            handleTransactionError(response?.message || 'Transaction execution failed');
+            
+            throw new Error('未获取到有效的交易签名');
           }
-        } catch (error) {
-          console.error('Error processing transaction parameters:', error);
           
-          // 返回 Swap 页面并显示错误消息
+          throw new Error(response?.message || '交易执行失败');
+          
+        } catch (error) {
+          console.error('Swap 交易错误:', error);
           navigation.navigate('MainStack', {
             screen: 'Tabs',
             params: {
@@ -265,23 +223,24 @@ export default function PaymentPasswordScreen({ route, navigation }) {
               params: {
                 showMessage: true,
                 messageType: 'error',
-                messageText: error.message || 'Transaction parameter error'
+                messageText: error.message || '交易执行失败'
               }
             }
           });
         }
-      } else {
-        // 默认行为
+      }
+      // 处理其他回调
+      else if (route.params?.onSuccess) {
+        await route.params.onSuccess(password);
+      }
+      // 默认行为
+      else {
         navigation.goBack();
       }
-    } catch (error) {
-      console.error('Password verification callback execution error:', error);
       
-      // 返回上一页并显示错误
-      navigation.goBack();
-      setTimeout(() => {
-        Alert.alert('Error', error?.message || 'Transaction failed, please try again');
-      }, 300);
+    } catch (error) {
+      console.error('密码验证回调执行错误:', error);
+      handleTransactionError(error.message || '交易失败，请重试');
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -389,6 +348,9 @@ export default function PaymentPasswordScreen({ route, navigation }) {
       </View>
 
       {renderProcessingOverlay()}
+
+      {/* 添加 ToastView */}
+      <ToastView />
     </View>
   );
 }

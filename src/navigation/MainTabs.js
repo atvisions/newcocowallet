@@ -138,6 +138,10 @@ function CustomTabBar({ state, descriptors, navigation }) {
 }
 
 const TabScreens = () => {
+  useEffect(() => {
+    console.log('【导航追踪】TabScreens mounted');
+  }, []);
+
   return (
     <Tab.Navigator
       tabBar={props => <CustomTabBar {...props} />}

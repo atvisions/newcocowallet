@@ -64,28 +64,6 @@ export const WalletProvider = ({ children }) => {
 
   const loadWallets = async () => {
     try {
-      // 先尝试加载缓存数据
-      const cachedWallets = await loadCachedWalletData();
-      if (cachedWallets && cachedWallets.length > 0) {
-        setWallets(cachedWallets);
-        
-        // 处理选中钱包
-        const savedWalletId = await AsyncStorage.getItem('selectedWalletId');
-        if (savedWalletId) {
-          const savedWalletIdNumber = parseInt(savedWalletId, 10);
-          const savedWallet = cachedWallets.find(wallet => wallet.id === savedWalletIdNumber);
-          
-          if (savedWallet) {
-            // 确保选中的钱包也经过处理
-            setSelectedWallet(processWalletData(savedWallet));
-          } else {
-            setSelectedWallet(processWalletData(cachedWallets[0]));
-          }
-        } else {
-          setSelectedWallet(processWalletData(cachedWallets[0]));
-        }
-      }
-      
       // 获取设备ID
       const deviceId = await DeviceManager.getDeviceId();
       console.log('【钱包上下文】当前设备 ID:', deviceId);
@@ -94,11 +72,13 @@ export const WalletProvider = ({ children }) => {
       const response = await api.getWallets(deviceId);
       console.log('【钱包上下文】获取到的钱包列表:', response);
       
-      // 确保response是数组且有效，并处理钱包数据
-      if (Array.isArray(response) && response.length > 0) {
-        const validWallets = processWalletList(response);
+      // 确保response.data.wallets是数组且有效
+      if (response?.status === 'success' && Array.isArray(response.data?.wallets)) {
+        const validWallets = processWalletList(response.data.wallets);
+        
+        // 先设置钱包列表
         setWallets(validWallets);
-        await cacheWalletData(validWallets); // 缓存新数据
+        await cacheWalletData(validWallets);
         
         // 如果没有钱包，清空选中的钱包
         if (validWallets.length === 0) {
@@ -117,59 +97,76 @@ export const WalletProvider = ({ children }) => {
           const savedWallet = validWallets.find(wallet => wallet.id === savedWalletIdNumber);
           
           if (savedWallet) {
-            setSelectedWallet(processWalletData(savedWallet));
-          } else {
-            setSelectedWallet(processWalletData(validWallets[0]));
-            await AsyncStorage.setItem('selectedWalletId', String(validWallets[0].id));
+            const processedWallet = processWalletData(savedWallet);
+            setSelectedWallet(processedWallet);
+            console.log('【钱包上下文】设置选中钱包:', processedWallet.id);
           }
-        } else if (validWallets.length > 0) {
-          setSelectedWallet(processWalletData(validWallets[0]));
-          await AsyncStorage.setItem('selectedWalletId', String(validWallets[0].id));
+        }
+        
+        // 如果没有选中的钱包，选择第一个
+        if (!savedWalletId && validWallets.length > 0) {
+          const firstWallet = processWalletData(validWallets[0]);
+          setSelectedWallet(firstWallet);
+          await AsyncStorage.setItem('selectedWalletId', String(firstWallet.id));
+          console.log('【钱包上下文】设置第一个钱包:', firstWallet.id);
         }
       }
     } catch (error) {
       console.error('【钱包上下文】加载钱包失败:', error);
       
-      // 如果服务器请求失败，但有缓存数据，继续使用缓存数据
+      // 如果服务器请求失败，尝试使用缓存数据
       const cachedWallets = await loadCachedWalletData();
       if (cachedWallets && cachedWallets.length > 0) {
         console.log('【钱包上下文】使用缓存的钱包数据');
-        return;
+        setWallets(cachedWallets);
+        
+        // 尝试恢复选中的钱包
+        const savedWalletId = await AsyncStorage.getItem('selectedWalletId');
+        if (savedWalletId) {
+          const savedWallet = cachedWallets.find(w => w.id === parseInt(savedWalletId, 10));
+          if (savedWallet) {
+            setSelectedWallet(processWalletData(savedWallet));
+          }
+        }
       }
-      
-      setWallets([]);
-      setSelectedWallet(null);
-      setTokens([]);
     }
   };
 
   const updateSelectedWallet = useCallback(async (wallet) => {
     try {
-      // 如果是清空钱包，直接执行
+      console.log('【DEBUG】开始更新选中钱包:', wallet);
+      
       if (!wallet) {
+        console.log('【DEBUG】清空钱包');
         await AsyncStorage.removeItem('selectedWalletId');
         setSelectedWallet(null);
         setTokens([]);
         return;
       }
 
-      // 处理钱包数据，确保头像URL正确
       const processedWallet = processWalletData(wallet);
+      console.log('【DEBUG】处理后的钱包数据:', processedWallet);
 
-      // 保存钱包ID到AsyncStorage
       await AsyncStorage.setItem('selectedWalletId', String(wallet.id));
-      console.log('保存选中的钱包ID:', wallet.id);
+      console.log('【DEBUG】已保存钱包ID:', wallet.id);
       
-      // 使用Promise确保状态更新的顺序
+      // 增加延迟时间，确保状态更新完成
       await new Promise(resolve => {
         setTokens([]);
         setTimeout(() => {
+          console.log('【DEBUG】设置新的选中钱包');
           setSelectedWallet(processedWallet);
           resolve();
-        }, 50);
+        }, 100); // 增加到 100ms
+      });
+
+      // 添加额外的日志
+      console.log('【DEBUG】钱包更新完成，当前状态:', {
+        walletId: processedWallet.id,
+        chain: processedWallet.chain
       });
     } catch (error) {
-      console.error('更新选中钱包失败:', error);
+      console.error('【DEBUG】更新选中钱包失败:', error);
     }
   }, []);
 
@@ -229,6 +226,16 @@ export const WalletProvider = ({ children }) => {
       console.error('刷新代币列表失败:', error);
     }
   }, [selectedWallet?.id, updateTokensCache]);
+
+  // 添加状态监听
+  useEffect(() => {
+    console.log('【状态追踪】钱包状态变化:', {
+      walletsCount: wallets.length,
+      selectedWalletId: selectedWallet?.id,
+      tokensCount: tokens.length,
+      timestamp: new Date().toISOString()
+    });
+  }, [wallets, selectedWallet, tokens]);
 
   const value = {
     wallets,

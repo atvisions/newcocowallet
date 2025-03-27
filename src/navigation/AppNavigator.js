@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,6 +30,10 @@ import PointsHistoryScreen from '../screens/PointsHistoryScreen';
 const Stack = createStackNavigator();
 
 const AppNavigator = () => {
+  useEffect(() => {
+    console.log('【导航追踪】AppNavigator mounted');
+  }, []);
+
   return (
     <Stack.Navigator
       screenOptions={{
