@@ -8,7 +8,7 @@ import * as Network from 'expo-network';
 console.log('【COCO_INIT】API模块初始化');
 
 // 修改BASE_URL，统一使用生产环境地址
-const BASE_URL = 'http://192.168.3.16:8000/api/v1';
+const BASE_URL = 'https://www.cocowallet.io/api/v1';
 
 // 直接输出使用的API地址
 console.log('【COCO_INIT】使用API地址:', BASE_URL);
@@ -1191,17 +1191,20 @@ export const api = {
     }
   },
 
-  // 添加签到接口
+  // 修改签到接口   
   dailyCheckIn: async (deviceId) => {
     try {
-      const response = await axiosInstance.post('/tasks/complete_task/', {
-        device_id: deviceId,
-        task_code: 'DAILY_CHECK_IN'
+      const response = await axiosInstance.post('/tasks/daily_check_in/', {
+        device_id: deviceId
       });
       return response.data;
     } catch (error) {
+      // 不要抛出错误，而是返回错误响应
       console.error('Daily check-in failed:', error);
-      throw error;
+      return {
+        status: 'error',
+        message: error.response?.data?.message || 'Check-in failed. Please try again.'
+      };
     }
   },
 };

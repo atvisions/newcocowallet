@@ -689,11 +689,12 @@ const TasksCard = ({ navigation, tasks = [], refreshing, onRefresh }) => {
         Toast.show(response.message, 'success');
         onRefresh(); // 刷新任务列表和积分
       } else {
-        Toast.show(response.message || '签到失败，请稍后重试', 'error');
+        // 显示后端返回的错误消息
+        Toast.show(response.message, 'error');
       }
     } catch (error) {
-      console.error('签到失败:', error);
-      Toast.show('签到失败，请稍后重试', 'error');
+      console.error('Check-in failed:', error);
+      Toast.show('Check-in failed. Please try again.', 'error');
     }
   };
 
